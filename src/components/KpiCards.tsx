@@ -80,8 +80,7 @@ function KpiCard({ title, value, unit, subLabel, subValue, subUnit, gradient, ic
       </CardHeader>
       <CardContent className="px-3 md:px-6">
         <div className="text-xl md:text-3xl font-bold text-slate-800">
-          <AnimatedNumber value={value} decimals={value.includes('.') ? (value.split('.')[1]?.length || 2) : 0} />
-          <span className="text-xs md:text-sm font-normal text-slate-400 ml-1">{unit}</span>
+          <AnimatedNumber value={value} decimals={value?.toString().includes(".") ? (value.toString().split(".")[1]?.length || 2) : 0} />\n          <span className="text-xs md:text-sm font-normal text-slate-400 ml-1">{unit}</span>
         </div>
         <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-slate-100 flex items-center gap-1 md:gap-2 text-xs md:text-sm flex-wrap">
           <span className="text-slate-500">{subLabel}</span>
