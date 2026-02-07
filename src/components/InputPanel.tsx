@@ -326,7 +326,7 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
         />
       </InputGroup>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <InputGroup 
           label="日循环次数" 
           tooltip="每天充放电循环次数，通常1-2次"
@@ -387,7 +387,7 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1">
           <Label className="text-xs md:text-sm text-slate-600">贷款比例 / 利率</Label>
-          <div className="flex gap-2 w-[100px] md:w-[115px]">
+          <div className="flex gap-2 w-[170px] md:w-[200px]">
             <Input
               type="number"
               value={inputs.debt_ratio}
@@ -409,7 +409,7 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1">
           <Label className="text-xs md:text-sm text-slate-600">增值税 / 所得税</Label>
-          <div className="flex gap-2 w-[100px] md:w-[115px]">
+          <div className="flex gap-2 w-[170px] md:w-[200px]">
             <Input
               type="number"
               value={inputs.vat_rate}
@@ -437,7 +437,7 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
       <div className="mb-5">
         <div className="flex items-center justify-between mb-1">
           <Label className="text-xs md:text-sm text-slate-600">补容年份 / 单价</Label>
-          <div className="flex gap-2 w-[100px] md:w-[115px]">
+          <div className="flex gap-2 w-[170px] md:w-[200px]">
             <Input
               type="number"
               value={inputs.aug_year}
