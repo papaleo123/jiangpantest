@@ -1,4 +1,10 @@
-import { TrendingUp, Wallet, Clock, Battery, Zap, Scale } from 'lucide-react';
+import os
+
+# 这是修复后的完整 KpiCards.tsx 代码
+# 1. 移除了 />\n <span 中的 \n
+# 2. 增加了 safeFormat 函数，彻底根治 NaN
+# 3. 增强了 AnimatedNumber 的稳定性
+FIXED_CONTENT = r"""import { TrendingUp, Wallet, Clock, Battery, Zap, Scale } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { KpiResult } from '@/types';
@@ -189,3 +195,26 @@ export function KpiCards({ kpi }: KpiCardsProps) {
     </div>
   );
 }
+"""
+
+def main():
+    target_file = 'src/components/KpiCards.tsx'
+    
+    # 检查文件是否存在
+    if not os.path.exists(target_file):
+        print(f"❌ 错误: 找不到文件 {target_file}")
+        print("请确保你在项目根目录下运行此脚本")
+        return
+
+    # 全量写入
+    print(f"🔄 正在重写 {target_file} ...")
+    with open(target_file, 'w', encoding='utf-8') as f:
+        f.write(FIXED_CONTENT)
+    
+    print("✅ 修复完成！")
+    print("   1. 所有的 '\\n' 都已清除")
+    print("   2. 所有的 NaN 现在会显示为 '--'")
+    print("🚀 现在请执行: git add . && git commit -m 'fix: final fix for NaN and newline' && git push")
+
+if __name__ == "__main__":
+    main()
