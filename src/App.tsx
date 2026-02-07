@@ -49,7 +49,7 @@ function App() {
           {/* 右侧内容区 */}
           <div className="flex-1 min-w-0 flex flex-col gap-4">
             {/* KPI卡片 */}
-            <KpiCards kpi={kpi} />
+            <KpiCards kpi={kpi} stats={kpi.stats} />
 
             {/* 图表区域 */}
             <ChartsSection result={result} inputs={inputs} />

@@ -6,6 +6,7 @@ import { useEffect, useState, useRef } from 'react';
 
 interface KpiCardsProps {
   kpi: KpiResult | null;
+  stats?: any;
 }
 
 interface KpiCardProps {
@@ -167,7 +168,7 @@ export function KpiCards({ kpi }: KpiCardsProps) {
 
       <KpiCard
         title="总放电量"
-        value={safeFormat((kpi as any)?.total_discharge, 0)}
+        value={safeFormat((stats?.total_discharge_kwh || 0) / 10000, 0)}
         unit="万kWh"
         subLabel="全生命周期"
         subValue=""
@@ -178,7 +179,7 @@ export function KpiCards({ kpi }: KpiCardsProps) {
 
       <KpiCard
         title="总投资"
-        value={safeFormat((kpi as any)?.total_inv, 0)}
+        value={safeFormat((stats?.total_inv_gross || 0) / 10000, 0)}
         unit="万"
         subLabel="含税总投资"
         subValue=""
