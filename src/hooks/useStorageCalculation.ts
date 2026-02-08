@@ -524,7 +524,7 @@ export function useStorageCalculation() {
       for (let year = 1; year <= params.years; year++) {
         // 补容处理
         let augCost = 0;
-        // let augDep = 0; // 预留，暂未使用
+        let augDep = 0;
         if (year === inputs.aug_year && inputs.aug_year > 0) {
           augCost = params.Wh * inputs.aug_price;
           const augVAT = augCost - augCost / (1 + params.vatRate);
