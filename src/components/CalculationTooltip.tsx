@@ -183,15 +183,19 @@ export function createCalculationDetail(
       } else {
         // 甘肃模式：按功率
         const kFactor = Math.min(1, durationHours / 6.0);
-        subRev = (powerKW * currentSubPrice * kFactor) / 10000; // 转换为万元
-        const powerMW = (inputs?.capacity || 100) / (inputs?.duration_hours || 2); // MW
+        // 关键：确保功率单位是 kW（与 useStorageCalculation.ts 一致）
+        const actualPowerKW = ((inputs?.capacity || 100) * 1000) / (inputs?.duration_hours || 2);
+        subRev = (actualPowerKW * currentSubPrice * kFactor) / 10000; // 转换为万元
+        const powerMW = actualPowerKW / 1000; // 转换为MW用于显示
+        
         calcSteps = [
           { label: '补贴模式', value: '按功率(甘肃模式)', unit: '', formula: '输入参数' },
           { label: '装机容量', value: (inputs?.capacity || 100).toFixed(0), unit: 'MWh', formula: '输入参数' },
-          { label: '功率', value: (powerMW).toFixed(1), unit: 'MW', formula: '容量÷时长' },
+          { label: '功率', value: powerMW.toFixed(1), unit: 'MW', formula: '容量÷时长' },
+          { label: '功率(kW)', value: actualPowerKW.toFixed(0), unit: 'kW', formula: '用于计算' },
           { label: 'K系数', value: kFactor.toFixed(2), unit: '', formula: `min(1, ${durationHours}/6)` },
-          { label: '退坡后单价', value: currentSubPrice.toFixed(2), unit: '元/kW', formula: `${subPrice} × (1-${subDecline}%)^{year-1}` },
-          { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: '功率(kW) × K系数 × 单价 ÷ 10000' },
+          { label: '退坡后单价', value: currentSubPrice.toFixed(2), unit: '元/kW', formula: `${subPrice} × (1-${subDecline/100})^${year-1}` },
+          { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: `${actualPowerKW.toFixed(0)}kW × ${kFactor.toFixed(2)} × ${currentSubPrice.toFixed(2)} ÷ 10000` },
         ];
       }
       
