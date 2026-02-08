@@ -1,4 +1,4 @@
-import { TrendingUp, Wallet, Clock, Battery, Zap, Scale } from 'lucide-react';
+import { TrendingUp, Wallet, Clock, Battery, Zap, Scale , Target } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { KpiResult } from '@/types';
@@ -149,6 +149,16 @@ export function KpiCards({ kpi, stats }: KpiCardsProps) {
         gradient="bg-gradient-to-r from-orange-400 to-orange-600"
         icon={<Clock className="w-3 h-3 md:w-4 md:h-4 text-orange-500" />}
         delay={200}
+      />
+      <KpiCard
+        title="全投回收期"
+        value={safeFormat(kpi?.project_payback, 1)}
+        unit="年"
+        subLabel="不含融资"
+        subValue=""
+        gradient="bg-gradient-to-r from-indigo-400 to-indigo-600"
+        icon={<Target className="w-3 h-3 md:w-4 md:h-4 text-indigo-500" />}
+        delay={250}
       />
       
       <KpiCard
