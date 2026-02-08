@@ -24,6 +24,7 @@ export interface InputParams {
   tax_rate: number;
   aug_year: number;
   aug_price: number;
+  aug_dep_years: number;
   residual_rate: number;   // 残值率 (%)
 }
 

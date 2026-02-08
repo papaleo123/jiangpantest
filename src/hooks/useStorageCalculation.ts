@@ -100,6 +100,7 @@ export function useStorageCalculation() {
     tax_rate: 25,            // 所得税率 25%
     aug_year: 0,             // 补容年份 (0表示不补容)
     aug_price: 0.6,          // 补容单价
+    aug_dep_years: 15,        // 补容折旧年限
     residual_rate: 5,        // 残值率 5%
   });
 
@@ -213,7 +214,7 @@ export function useStorageCalculation() {
         remainingVAT += augVAT;
         assets.push({
           value: augCost / (1 + vatRate),
-          life: Math.max(1, inputs.dep_years - year + 1),
+          life: inputs.aug_dep_years,
           age: 0
         });
         currentSOH = 0.95;  // 补容后SOH重置
