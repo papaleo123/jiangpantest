@@ -124,7 +124,7 @@ const calculateRevenue = (
     auxPrice: number;
     powerKW: number;
     durationHours: number;
-    subMode: 'energy' | 'power';
+    subMode: 'energy' | 'capacity';
     subPrice: number;
     subYears: number;
     subDecline: number;
@@ -524,7 +524,6 @@ export function useStorageCalculation() {
       for (let year = 1; year <= params.years; year++) {
         // 补容处理
         let augCost = 0;
-        let augDep = 0;
         if (year === inputs.aug_year && inputs.aug_year > 0) {
           augCost = params.Wh * inputs.aug_price;
           const augVAT = augCost - augCost / (1 + params.vatRate);
@@ -573,7 +572,6 @@ export function useStorageCalculation() {
         const { annualDep, updatedAssets } = calculateDepreciation(assets);
         assets = updatedAssets;
         if (year === inputs.aug_year && inputs.aug_year > 0) {
-          augDep = annualDep; // 补容当年折旧已包含新资产
         }
 
         // 贷款计算
