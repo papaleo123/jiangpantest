@@ -456,15 +456,6 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
         </div>
       </div>
 
-      
-      <InvestmentBreakdown
-        items={inputs.investmentItems || []}
-        constructionPeriod={inputs.constructionPeriod || 12}
-        capacity={inputs.capacity}
-        onItemsChange={(items) => updateInput('investmentItems', items)}
-        onConstructionPeriodChange={(months) => updateInput('constructionPeriod', months)}
-      />
-      
       <Button 
         onClick={onCalculate}
         className="w-full bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white font-semibold py-5 md:py-6 rounded-xl shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
@@ -475,4 +466,3 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
     </div>
   );
 }
-\nimport { InvestmentBreakdown } from './InvestmentBreakdown';

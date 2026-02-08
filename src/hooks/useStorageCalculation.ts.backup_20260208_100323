@@ -134,26 +134,11 @@ export function useStorageCalculation() {
     const cycles = inputs.cycles;
     const runDays = inputs.run_days;
     
-    // 投资参数（新的明细计算）
+    // 投资参数
+    const totalInvGross = Wh * inputs.capex;                    // 总投资(含税)
     const vatRate = inputs.vat_rate / 100;
-    
-    // 计算总投资和分项进项税（关键改进！）
-    let totalInvGross = 0;      // 总投资含税
-    let totalInvNet = 0;        // 总投资不含税  
-    let totalInputVAT = 0;      // 总进项税
-    
-    // 计算各项投资的税额
-    const investmentDetails = inputs.investmentItems.map(item => {
-      const netAmount = item.amount / (1 + item.taxRate / 100);
-      const itemVAT = item.amount - netAmount;
-      totalInvGross += item.amount;
-      totalInvNet += netAmount;
-      totalInputVAT += itemVAT;
-      return { ...item, netAmount, itemVAT };
-    });
-    
-    // 设备进项税（用于抵扣）
-    const inputVAT = totalInputVAT;
+    const totalInvNet = totalInvGross / (1 + vatRate);          // 总投资(不含税)
+    const inputVAT = totalInvGross - totalInvNet;               // 设备进项税
     
     // 融资参数
     const debtRatio = inputs.debt_ratio / 100;
