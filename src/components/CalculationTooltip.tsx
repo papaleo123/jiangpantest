@@ -285,22 +285,70 @@ export function createCalculationDetail(
     
     case 'dep': {
       const depYears = inputs?.dep_years || 15;
+      const augYear = inputs?.aug_year || 0;
+      const augDepYears = inputs?.aug_dep_years || 15;
       const residualRate = (inputs?.residual_rate || 5) / 100;
-      const totalInvNet = (inputs?.capex || 1.20) * capacityWh / (1 + 0.13); // 不含税投资（简化计算）
-      const annualDep = (totalInvNet * (1 - residualRate)) / depYears / 10000; // 年均折旧（万元）
+      const vatRate = (inputs?.vat_rate || 13) / 100;
+      
+      // 基础投资（不含税）
+      const baseCapex = inputs?.capex || 1.20;
+      const baseInvGross = baseCapex * capacityWh; // 元
+      const baseInvNet = baseInvGross / (1 + vatRate); // 不含税
+      const baseAnnualDep = (baseInvNet * (1 - residualRate)) / depYears / 10000; // 万元
+      
+      let steps = [
+        { label: '基础系统造价', value: baseCapex.toFixed(2), unit: '元/Wh', formula: '输入参数' },
+        { label: '装机容量', value: (capacityWh / 1e6).toFixed(0), unit: 'MWh', formula: '输入参数' },
+        { label: '基础投资(含税)', value: (baseInvGross / 10000).toFixed(0), unit: '万元', formula: 'capex × capacity' },
+        { label: '基础投资(不含税)', value: (baseInvNet / 10000).toFixed(0), unit: '万元', formula: '含税 ÷ (1+增值税率)' },
+        { label: '残值率', value: (residualRate * 100).toFixed(0), unit: '%', formula: '输入参数' },
+        { label: '基础折旧年限', value: depYears, unit: '年', formula: '输入参数' },
+        { label: '基础年折旧', value: baseAnnualDep.toFixed(2), unit: '万元', formula: '投资(不含税) × (1-残值率) ÷ 年限' },
+      ];
+      
+      let totalDep = baseAnnualDep;
+      let description = `第${year}年基础资产折旧（不含税投资按${depYears}年直线折旧）`;
+      
+      // 如果是补容年，增加补容资产折旧
+      if (year === augYear && augYear > 0) {
+        const augPrice = inputs?.aug_price || 0.6;
+        const augInvGross = capacityWh * augPrice; // 补容投资（含税）
+        const augInvNet = augInvGross / (1 + vatRate); // 不含税
+        const augAnnualDep = (augInvNet * (1 - residualRate)) / augDepYears / 10000; // 万元
+        
+        totalDep += augAnnualDep;
+        description = `第${year}年折旧（含补容资产，基础+补容）`;
+        
+        steps = steps.concat([
+          { label: '--- 补容资产 ---', value: '', unit: '', formula: '' },
+          { label: '补容年份', value: augYear, unit: '年', formula: '输入参数' },
+          { label: '补容单价', value: augPrice.toFixed(2), unit: '元/Wh', formula: '输入参数' },
+          { label: '补容投资(含税)', value: (augInvGross / 10000).toFixed(0), unit: '万元', formula: 'aug_price × capacity' },
+          { label: '补容投资(不含税)', value: (augInvNet / 10000).toFixed(0), unit: '万元', formula: '含税 ÷ (1+增值税率)' },
+          { label: '补容折旧年限', value: augDepYears, unit: '年', formula: '输入参数' },
+          { label: '补容年折旧', value: augAnnualDep.toFixed(2), unit: '万元', formula: '补容投资 × (1-残值率) ÷ 年限' },
+          { label: '合计年折旧', value: totalDep.toFixed(2), unit: '万元', formula: '基础折旧 + 补容折旧' },
+        ]);
+      } else if (augYear > 0 && year > augYear) {
+        // 补容后的年份，提示包含补容折旧
+        const augPrice = inputs?.aug_price || 0.6;
+        const augInvGross = capacityWh * augPrice;
+        const augInvNet = augInvGross / (1 + vatRate);
+        const augAnnualDep = (augInvNet * (1 - residualRate)) / augDepYears / 10000;
+        
+        // 简化计算：假设补容资产也在折旧
+        totalDep = baseAnnualDep + augAnnualDep;
+        description = `第${year}年折旧（基础+补容资产，补容第${year - augYear}年）`;
+        
+        steps.push({ label: '补容资产折旧', value: augAnnualDep.toFixed(2), unit: '万元', formula: `补容后第${year - augYear}年折旧` });
+        steps.push({ label: '合计年折旧(估)', value: totalDep.toFixed(2), unit: '万元', formula: '基础+补容（简化计算）' });
+      }
       
       return {
         title: '折旧费用',
-        description: `第${year}年折旧 = 总投资(不含税) × (1-残值率) ÷ 折旧年限`,
-        formula: '投资原值 × (1-残值率) ÷ 年限',
-        steps: [
-          { label: '系统造价', value: (inputs?.capex || 1.20).toFixed(2), unit: '元/Wh', formula: '输入参数' },
-          { label: '装机容量', value: (capacityWh / 1e6).toFixed(0), unit: 'MWh', formula: '输入参数' },
-          { label: '总投资(含税)', value: ((inputs?.capex || 1.20) * capacityWh / 10000).toFixed(0), unit: '万元', formula: 'capex × capacity' },
-          { label: '残值率', value: (residualRate * 100).toFixed(0), unit: '%', formula: '输入参数' },
-          { label: '折旧年限', value: depYears, unit: '年', formula: '输入参数' },
-          { label: '年折旧额', value: annualDep.toFixed(2), unit: '万元', formula: '投资 × (1-残值率) ÷ 年限' },
-        ],
+        description: description,
+        formula: year === augYear ? '基础折旧 + 补容折旧' : '投资原值 × (1-残值率) ÷ 年限',
+        steps: steps,
         result: { value: rowData.dep, unit: '万元' }
       };
     }
