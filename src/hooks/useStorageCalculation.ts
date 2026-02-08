@@ -198,6 +198,7 @@ export function useStorageCalculation() {
     const equityCF: number[] = [-equity];  // 股东现金流（初始为负的投资）
     const projectCF: number[] = [-totalInvGross];
     const rows: YearlyRow[] = [];
+    const yearlyDischarge: number[] = [0]; // 修复LCOE计算: 初始化发电量数组
     
     // 统计累计值
     let cumEquityCF = -equity;
