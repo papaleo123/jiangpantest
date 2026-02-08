@@ -1,3 +1,12 @@
+// 投资明细项
+export interface InvestmentItem {
+  id?: string;
+  name: string;
+  amount: number;        // 万元
+  taxRate: number;       // %
+  category: 'equipment' | 'civil' | 'install' | 'other';
+}
+
 // 输入参数类型
 export interface InputParams {
   years: number;
