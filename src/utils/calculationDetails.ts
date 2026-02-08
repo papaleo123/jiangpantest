@@ -411,7 +411,10 @@ export function createCalculationDetail(
       const inputVAT = (opexGross - opexNet) + (lossCostGross - lossCostNet);
       
       // 增值税计算（简化，不考虑历史留抵）
-      let vatPayable = outputVAT - inputVAT;
+      const theoreticalVat = outputVAT - inputVAT;
+      const actualVat = parseFloat(rowData.vat_pay || '0') * 10000;
+      const vatCreditUsed = Math.max(0, theoreticalVat - actualVat);
+      let vatPayable = theoreticalVat;
       if (vatPayable < 0) vatPayable = 0;
       
       return {
@@ -425,7 +428,9 @@ export function createCalculationDetail(
           { label: '运维成本(含税)', value: (opexGross / 10000).toFixed(2), unit: '万元', formula: 'capacityWh × opex' },
           { label: '损耗电费(含税)', value: (lossCostGross / 10000).toFixed(2), unit: '万元', formula: 'lossKWh × priceValley' },
           { label: '进项税额', value: (inputVAT / 10000).toFixed(2), unit: '万元', formula: '成本(含税) - 成本(不含税)' },
-          { label: '应交增值税', value: (vatPayable / 10000).toFixed(2), unit: '万元', formula: '销项 - 进项' },
+          { label: '理论应交增值税', value: (theoreticalVat / 10000).toFixed(2), unit: '万元', formula: '销项税额 - 进项税额' },
+          ...(vatCreditUsed > 0.01 ? [{ label: '减：留抵税额抵扣', value: (vatCreditUsed / 10000).toFixed(2), unit: '万元', formula: '历史累积进项税留抵' }] : []),
+          { label: '实际应交增值税', value: (actualVat / 10000).toFixed(2), unit: '万元', formula: vatCreditUsed > 0.01 ? '理论应交 - 留抵抵扣' : '销项 - 进项' },
         ],
         result: { value: rowData.vat_pay, unit: '万元' }
       };
