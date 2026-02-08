@@ -125,7 +125,8 @@ export interface KpiResult {
   project_irr: number;           // 项目IRR (%)
   npv: number;                   // NPV @8% (万元)
   roi: number;                   // 投资回报率 (%)
-  payback: number;               // 静态回收期 (年)
+  payback: number;
+  project_payback: number;               // 静态回收期 (年)
   min_dscr: number;              // 最低偿债覆盖率
   lcoe: number;                  // 度电成本 (元/kWh)
   total_profit: number;          // 总净利润 (万元)
