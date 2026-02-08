@@ -311,16 +311,23 @@ export function useStorageCalculation() {
       
       // ---- 3.5 折旧计算 ----
       let annualDep = 0;
-      assets = assets.filter(asset => {
+      const remainingAssets: Asset[] = [];
+      
+      for (const asset of assets) {
         if (asset.age < asset.life) {
           // 直线法折旧，考虑残值
           const dep = asset.value * (1 - residualRate) / asset.life;
           annualDep += dep;
-          asset.age++;
-          return true;
+          // 创建新对象，避免副作用
+          remainingAssets.push({
+            ...asset,
+            age: asset.age + 1
+          });
         }
-        return false;
-      });
+        // 如果 age >= life，资产折旧完毕，不加入 remainingAssets（但保留在内存中用于统计）
+      }
+      
+      assets = remainingAssets;
       stats.total_dep += annualDep;
       
       // ---- 3.6 贷款还款 ----
@@ -453,6 +460,9 @@ export function useStorageCalculation() {
         dscr: dscr === 999 ? '-' : dscr.toFixed(2),
       });
       
+      // 记录本年度发电量（用于后续LCOE计算，避免字符串解析）
+      yearlyDischarge.push(annualDischargeKWh);
+      
       // ---- 3.12 SOH衰减 ----
       // 首年衰减4%，之后每年2.5%
       currentSOH -= year === 1 ? 0.04 : 0.025;
@@ -474,13 +484,34 @@ export function useStorageCalculation() {
     const npv = calculateNPV(0.08, projectCF);
     const payback = calculatePayback(equityCF);
     
-    // LCOE计算（修正：使用折现现金流方法，更准确）
-    // 标准 LCOE = NPV(成本) / NPV(发电量)
-    const lcoe = calculateNPV(0.08, projectCF) / calculateNPV(0.08, 
-      Array(years).fill(0).map((_, i) => rows[i]?.discharge_kwh ? parseFloat(rows[i].discharge_kwh) * 10000 : 0)
-    );
-    // 备选：如果折现计算失败，使用静态平均
-    const lcoeStatic = (stats.total_inv_gross + stats.total_opex + stats.total_loss_cost) / stats.total_discharge_kwh;
+    // LCOE计算（修正：成本现值 / 发电量现值）
+    // 成本包括：初始投资 + 运维 + 充电成本 + 税金 - 残值回收（不是 projectCF！）
+    const costCF: number[] = [-totalInvGross];  // 初始投资（现金流出）
+    for (let y = 0; y < years; y++) {
+      const year = y + 1;
+      const row = rows[y];
+      // 年度成本 = 运维 + 损耗电费 + 税金（不包括收入！）
+      // 注意：row 中的值已经是万元，需要 * 10000 转元
+      const yearCost = (parseFloat(row.opex) + parseFloat(row.loss_cost) + parseFloat(row.total_tax)) * 10000;
+      
+      // 最后一年减去残值回收（负成本）
+      if (year === years) {
+        const residualValue = totalInvNet * residualRate;
+        costCF.push(yearCost - residualValue);
+      } else {
+        costCF.push(yearCost);
+      }
+    }
+    
+    // 使用预计算的发电量数组（性能优化，避免字符串解析）
+    const generationCF: number[] = [0];  // 第0年占位
+    for (const discharge of yearlyDischarge) {
+      generationCF.push(discharge);  // 已经是 kWh
+    }
+    
+    const npvCost = calculateNPV(0.08, costCF);
+    const npvGen = calculateNPV(0.08, generationCF);
+    const lcoe = npvGen > 0 ? npvCost / npvGen : 0;
     
     // ROI = 总净利润 / 总投资
     const roi = (stats.total_net_profit / totalInvGross) * 100;
