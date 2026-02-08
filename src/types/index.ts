@@ -142,3 +142,11 @@ export interface InvestmentItem {
 
 // 修改 InputParams 中的投资相关字段
 // 注意：以下注释用于指导修改，实际字段在 hooks 中处理
+
+// 投资明细项
+export interface InvestmentItem {
+  name: string;
+  amount: number;
+  taxRate: number;
+  category: 'equipment' | 'civil' | 'install' | 'other';
+}

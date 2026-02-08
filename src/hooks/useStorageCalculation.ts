@@ -143,7 +143,6 @@ export function useStorageCalculation() {
     let totalInputVAT = 0;      // 总进项税
     
     // 计算各项投资的税额
-    const investmentDetails = inputs.investmentItems.map(item => {
       const netAmount = item.amount / (1 + item.taxRate / 100);
       const itemVAT = item.amount - netAmount;
       totalInvGross += item.amount;
