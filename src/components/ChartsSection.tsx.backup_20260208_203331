@@ -37,7 +37,6 @@ const COLORS = {
 };
 
 // IRR计算
-// FIXME: 与 useStorageCalculation.ts 重复，建议提取到 utils
 function calculateIRR(cf: number[]): number {
   let guess = 0.1;
   for (let i = 0; i < 100; i++) {
@@ -55,7 +54,6 @@ function calculateIRR(cf: number[]): number {
 }
 
 // NPV计算
-// FIXME: 与 useStorageCalculation.ts 重复，建议提取到 utils
 function calculateNPV(rate: number, cf: number[]): number {
   return cf.reduce((npv, cashflow, t) => npv + cashflow / Math.pow(1 + rate, t), 0);
 }

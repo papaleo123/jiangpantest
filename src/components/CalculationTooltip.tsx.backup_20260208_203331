@@ -1,6 +1,5 @@
 import { Calculator, Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import type { InputParams, YearlyRow } from '@/types';
 import { Badge } from '@/components/ui/badge';
 
 interface CalculationStep {
@@ -30,8 +29,8 @@ interface Props {
 // 展示用的计算逻辑（完全复刻 useStorageCalculation.ts）
 export function createCalculationDetail(
   type: string,
-  rowData: YearlyRow,
-  inputs: InputParams
+  rowData: any,
+  inputs: any
 ): CalculationDetail | null {
   const year = parseInt(rowData.y) || 1;
   

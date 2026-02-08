@@ -12,13 +12,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { CalculationResult, InputParams } from '@/types';
+import type { CalculationResult } from '@/types';
 import { CalculationTooltip, createCalculationDetail } from './CalculationTooltip';
 import { Download, Table2, Zap, DollarSign, Receipt } from 'lucide-react';
 
 interface DataTableProps {
   result: CalculationResult | null;
-  inputs?: InputParams;  // 输入参数，用于计算过程展示
+  inputs?: any;  // 输入参数，用于计算过程展示
   onExport: () => void;
 }
 
@@ -80,10 +80,12 @@ function DataTableContent({
 }: { 
   columns: Array<{ key: string; label: string; align?: 'left'; className?: string; highlight?: boolean }>;
   result: CalculationResult | null;
-  inputs?: InputParams;
+  inputs?: any;
   getCellClassName: (col: { key: string; highlight?: boolean; className?: string; align?: 'left' }, value: string) => string;
 }) {
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const [selectedCalc, setSelectedCalc] = useState<any>(null);
+  const [isCalcOpen, setIsCalcOpen] = useState(false);
   const [selectedCalc, setSelectedCalc] = useState<any>(null);
   const [isCalcOpen, setIsCalcOpen] = useState(false);
 
