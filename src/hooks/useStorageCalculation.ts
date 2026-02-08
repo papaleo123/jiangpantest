@@ -137,22 +137,11 @@ export function useStorageCalculation() {
     // 投资参数（新的明细计算）
     const vatRate = inputs.vat_rate / 100;
     
-    // 计算总投资和分项进项税（关键改进！）
-    let totalInvGross = 0;      // 总投资含税
-    let totalInvNet = 0;        // 总投资不含税  
-    let totalInputVAT = 0;      // 总进项税
-    
-    // 计算各项投资的税额
-      const netAmount = item.amount / (1 + item.taxRate / 100);
-      const itemVAT = item.amount - netAmount;
-      totalInvGross += item.amount;
-      totalInvNet += netAmount;
-      totalInputVAT += itemVAT;
-      return { ...item, netAmount, itemVAT };
-    });
-    
-    // 设备进项税（用于抵扣）
-    const inputVAT = totalInputVAT;
+    // 投资参数（修复版：使用简单 capex 计算，避免悬空代码）
+    // 后续可以扩展为分项投资明细
+    const totalInvGross = Wh * inputs.capex;                    // 总投资(含税)
+    const totalInvNet = totalInvGross / (1 + vatRate);          // 总投资(不含税)
+    const inputVAT = totalInvGross - totalInvNet;               // 设备进项税
     
     // 融资参数
     const debtRatio = inputs.debt_ratio / 100;
@@ -504,10 +493,16 @@ export function useStorageCalculation() {
              `${r.ebit},${r.ebitda},${r.net_profit},${r.principal},${r.cf},${r.cum_cf},${r.dscr}\n`;
     });
     
+    // 使用 Blob 更安全地处理 CSV 下载
+    const blob = new Blob([txt], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURI(txt);
+    link.href = url;
     link.download = '储能财务分析表_V13.csv';
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }, [result]);
 
   /**
