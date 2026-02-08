@@ -52,6 +52,19 @@ export function createCalculationDetail(
   const chargeEff = (inputs?.charge_eff || 94) / 100;
   const dischargeEff = (inputs?.discharge_eff || 94) / 100;
   
+  // 获取功率（kW）用于容量补贴计算
+  const powerKW = (inputs?.capacity || 100) * 1000 / (inputs?.duration_hours || 2); // MWh -> kW (功率 = 容量/时长)
+  const durationHours = inputs?.duration_hours || 2;
+  const subMode = inputs?.sub_mode || 'energy';
+  const subPrice = inputs?.sub_price || 0.35;
+  const subDecline = inputs?.sub_decline || 0;
+  const spread = inputs?.spread || 0.70;
+  const auxPrice = inputs?.aux_price || 0;
+  
+  // 计算补贴退坡后的当前单价
+  const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
+  const currentSubPrice = subPrice * declineFactor;
+  
   switch (type) {
     case 'discharge_kwh': {
       // 完全复刻 calculatePhysics 中的计算
@@ -129,6 +142,98 @@ export function createCalculationDetail(
       };
     }
     
+    case 'elec_rev': {
+      // 需要先计算放电量
+      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
+      const elecRev = annualDischargeKWh * spread;
+      
+      return {
+        title: '电费套利收入',
+        description: `第${year}年电费套利收入 = 放电量 × 峰谷价差`,
+        formula: '放电量(万kWh) × 价差(元/kWh)',
+        steps: [
+          { label: '年放电量', value: annualDischargeKWh.toFixed(2), unit: '万kWh', formula: '见放电量计算' },
+          { label: '峰谷价差', value: spread.toFixed(2), unit: '元/kWh', formula: '输入参数' },
+          { label: '电费套利收入', value: elecRev.toFixed(2), unit: '万元', formula: '放电量 × 价差' },
+        ],
+        result: { value: rowData.elec_rev, unit: '万元' }
+      };
+    }
+    
+    case 'sub_rev': {
+      // 计算放电量（电量补贴用）或功率（容量补贴用）
+      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
+      
+      let subRev = 0;
+      let calcSteps = [];
+      
+      if (subMode === 'energy') {
+        // 内蒙模式：按电量
+        subRev = annualDischargeKWh * currentSubPrice;
+        calcSteps = [
+          { label: '补贴模式', value: '按电量(内蒙模式)', unit: '', formula: '输入参数' },
+          { label: '年放电量', value: annualDischargeKWh.toFixed(2), unit: '万kWh', formula: '见放电量计算' },
+          { label: '退坡后单价', value: currentSubPrice.toFixed(3), unit: '元/kWh', formula: `${subPrice} × (1-${subDecline}%)^{year-1}` },
+          { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: '放电量 × 单价' },
+        ];
+      } else {
+        // 甘肃模式：按功率
+        const kFactor = Math.min(1, durationHours / 6.0);
+        subRev = powerKW * currentSubPrice * kFactor;
+        calcSteps = [
+          { label: '补贴模式', value: '按功率(甘肃模式)', unit: '', formula: '输入参数' },
+          { label: '装机容量', value: (inputs?.capacity || 100).toFixed(0), unit: 'MWh', formula: '输入参数' },
+          { label: '功率', value: (powerKW).toFixed(0), unit: 'kW', formula: '容量÷时长' },
+          { label: 'K系数', value: kFactor.toFixed(2), unit: '', formula: `min(1, ${durationHours}/6)` },
+          { label: '退坡后单价', value: currentSubPrice.toFixed(2), unit: '元/kW', formula: `${subPrice} × (1-${subDecline}%)^{year-1}` },
+          { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: '功率 × K系数 × 单价' },
+        ];
+      }
+      
+      return {
+        title: '补偿收入',
+        description: `第${year}年补偿收入（${subMode === 'energy' ? '内蒙-按电量' : '甘肃-按功率'}模式）`,
+        formula: subMode === 'energy' ? '放电量 × 退坡后单价' : '功率 × K系数 × 退坡后单价',
+        steps: calcSteps,
+        result: { value: rowData.sub_rev, unit: '万元' }
+      };
+    }
+    
+    case 'aux_rev': {
+      const auxRev = powerKW * auxPrice;
+      
+      return {
+        title: '辅助服务收入',
+        description: `第${year}年辅助服务收入（调峰、调频等）`,
+        formula: '功率 × 单位收益',
+        steps: [
+          { label: '功率', value: powerKW.toFixed(0), unit: 'kW', formula: '容量÷时长' },
+          { label: '单位收益', value: auxPrice.toFixed(2), unit: '元/kW/年', formula: '输入参数' },
+          { label: '辅助服务收入', value: auxRev.toFixed(2), unit: '万元', formula: '功率 × 单位收益' },
+        ],
+        result: { value: rowData.aux_rev, unit: '万元' }
+      };
+    }
+    
+    case 'total_rev': {
+      return {
+        title: '总收入',
+        description: `第${year}年总收入 = 电费套利 + 补偿 + 辅助服务`,
+        formula: '电费套利 + 补偿收入 + 辅助服务收入',
+        steps: [
+          { label: '电费套利', value: rowData.elec_rev, unit: '万元', formula: '' },
+          { label: '补偿收入', value: rowData.sub_rev, unit: '万元', formula: '' },
+          { label: '辅助服务', value: rowData.aux_rev, unit: '万元', formula: '' },
+          { label: '总收入', value: rowData.total_rev, unit: '万元', formula: '三者之和' },
+        ],
+        result: { value: rowData.total_rev, unit: '万元' }
+      };
+    }
+
     default:
       return null;
   }
