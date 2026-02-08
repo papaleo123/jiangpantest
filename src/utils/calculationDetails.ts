@@ -6,18 +6,13 @@ interface CalculationStep {
   unit?: string;
   formula?: string;
 }
-
 interface CalculationDetail {
   title: string;
   description: string;
   formula: string;
   steps: CalculationStep[];
-  result: {
-    value: string | number;
-    unit: string;
-  };
+  result: { value: string | number; unit: string; };
 }
-
 
 export function createCalculationDetail(
   type: string,
