@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { X, Calculator, Info } from 'lucide-react';
+import { Calculator, Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 
@@ -130,7 +129,7 @@ export function createCalculationDetail(
       return {
         title: '补贴收益',
         description: '政策补贴收入',
-        formula: type === 'energy' ? '放电量 × 补贴单价' : '容量 × 补贴单价',
+        formula: inputs.sub_mode === 'energy' ? '放电量 × 补贴单价' : '容量 × 补贴单价',
         steps: [
           { label: '补贴模式', value: inputs.sub_mode === 'energy' ? '按电量' : '按容量', unit: '' },
           { label: '补贴单价', value: inputs.sub_price, unit: inputs.sub_mode === 'energy' ? '元/kWh' : '元/kW' },

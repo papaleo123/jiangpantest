@@ -190,7 +190,7 @@ function DataTableContent({
   );
 }
 
-export function DataTable({ result, onExport }: DataTableProps) {
+export function DataTable({ result, inputs, onExport }: DataTableProps) {
   const getCellClassName = (column: { key: string; highlight?: boolean; className?: string; align?: 'left' }, value: string) => {
     const classes: string[] = [];
     
