@@ -13,10 +13,12 @@ import {
 } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { CalculationResult } from '@/types';
+import { CalculationTooltip, createCalculationDetail } from './CalculationTooltip';
 import { Download, Table2, Zap, DollarSign, Receipt } from 'lucide-react';
 
 interface DataTableProps {
   result: CalculationResult | null;
+  inputs?: any;  // 输入参数，用于计算过程展示
   onExport: () => void;
 }
 
@@ -73,13 +75,17 @@ interface TotalRow {
 function DataTableContent({ 
   columns, 
   result, 
+  inputs,
   getCellClassName 
 }: { 
   columns: Array<{ key: string; label: string; align?: 'left'; className?: string; highlight?: boolean }>;
   result: CalculationResult | null;
+  inputs?: any;
   getCellClassName: (col: { key: string; highlight?: boolean; className?: string; align?: 'left' }, value: string) => string;
 }) {
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const [selectedCalc, setSelectedCalc] = useState<any>(null);
+  const [isCalcOpen, setIsCalcOpen] = useState(false);
 
   const getTotalRow = (): TotalRow | null => {
     if (!result) return null;
@@ -113,7 +119,13 @@ function DataTableContent({
   const totalRow = getTotalRow();
 
   return (
-    <ScrollArea className="h-[350px] md:h-[400px] border rounded-lg">
+    <>
+      <CalculationTooltip 
+        detail={selectedCalc} 
+        isOpen={isCalcOpen} 
+        onClose={() => setIsCalcOpen(false)} 
+      />
+      <ScrollArea className="h-[350px] md:h-[400px] border rounded-lg">
       <Table>
         <TableHeader className="sticky top-0 bg-slate-50 z-10">
           <TableRow className="hover:bg-transparent">
@@ -142,7 +154,17 @@ function DataTableContent({
               {columns.map((col) => (
                 <TableCell 
                   key={col.key}
-                  className={`py-2 text-xs md:text-sm whitespace-nowrap px-2 ${getCellClassName(col, String(row[col.key as keyof typeof row]))}`}
+                  className={`py-2 text-xs md:text-sm whitespace-nowrap px-2 cursor-pointer hover:bg-blue-100 transition-colors ${getCellClassName(col, String(row[col.key as keyof typeof row]))}`}
+                  onClick={() => {
+                    const calcColumns = ["elec_rev", "sub_rev", "loss_cost", "income_tax", "total_tax", "ebitda"];
+                    if (calcColumns.includes(col.key) && inputs) {
+                      const detail = createCalculationDetail(col.key, row, inputs);
+                      if (detail) {
+                        setSelectedCalc(detail);
+                        setIsCalcOpen(true);
+                      }
+                    }
+                  }}
                 >
                   {String(row[col.key as keyof typeof row])}
                 </TableCell>
@@ -164,6 +186,7 @@ function DataTableContent({
         </TableBody>
       </Table>
     </ScrollArea>
+  </>
   );
 }
 
@@ -236,23 +259,23 @@ export function DataTable({ result, onExport }: DataTableProps) {
           </TabsList>
           
           <TabsContent value="physical" className="mt-2">
-            <DataTableContent columns={physicalColumns} result={result} getCellClassName={getCellClassName} />
+            <DataTableContent columns={physicalColumns} result={result} inputs={inputs} getCellClassName={getCellClassName} />
           </TabsContent>
           
           <TabsContent value="revenue" className="mt-2">
-            <DataTableContent columns={revenueColumns} result={result} getCellClassName={getCellClassName} />
+            <DataTableContent columns={revenueColumns} result={result} inputs={inputs} getCellClassName={getCellClassName} />
           </TabsContent>
           
           <TabsContent value="cost" className="mt-2">
-            <DataTableContent columns={costColumns} result={result} getCellClassName={getCellClassName} />
+            <DataTableContent columns={costColumns} result={result} inputs={inputs} getCellClassName={getCellClassName} />
           </TabsContent>
           
           <TabsContent value="tax" className="mt-2">
-            <DataTableContent columns={taxColumns} result={result} getCellClassName={getCellClassName} />
+            <DataTableContent columns={taxColumns} result={result} inputs={inputs} getCellClassName={getCellClassName} />
           </TabsContent>
           
           <TabsContent value="cashflow" className="mt-2">
-            <DataTableContent columns={cashflowColumns} result={result} getCellClassName={getCellClassName} />
+            <DataTableContent columns={cashflowColumns} result={result} inputs={inputs} getCellClassName={getCellClassName} />
           </TabsContent>
         </Tabs>
       </CardContent>
