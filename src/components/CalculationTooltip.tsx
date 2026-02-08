@@ -103,10 +103,17 @@ export function createCalculationDetail(
     }
     
     case 'loss_kwh': {
+      // 复刻计算
       const usableCapacityDC = capacityWh * currentSOH * dod;
-      const dailyDischarge = usableCapacity * cycles;
+      
+      // 放电量计算
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
-      const annualChargeKWh = annualDischargeKWh / rte;
+      
+      // 充电量计算  
+      const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
+      const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
+      
       const lossKWh = annualChargeKWh - annualDischargeKWh;
       
       return {
