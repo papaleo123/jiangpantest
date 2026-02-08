@@ -55,8 +55,10 @@ export function createCalculationDetail(
   switch (type) {
     case 'discharge_kwh': {
       // 完全复刻 calculatePhysics 中的计算
-      const usableCapacityDC = capacityWh * currentSOH * dod;
-      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles; // × 放电效率
+      const usableCapacityDC = capacityWh * currentSOH * dod; // 直流侧可用容量
+      
+      // 放电量（交流侧）= 直流可用容量 × 放电效率 × 日循环
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
       
       return {
@@ -81,7 +83,7 @@ export function createCalculationDetail(
     
     case 'charge_kwh': {
       // 复刻计算：充电量独立计算，不再通过RTE反推
-      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const usableCapacityDC = capacityWh * currentSOH * dod; // 直流侧可用容量
       const dailyChargeAC = usableCapacityDC / chargeEff * cycles; // ÷ 充电效率
       const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
       
