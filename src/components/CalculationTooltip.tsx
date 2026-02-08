@@ -239,6 +239,97 @@ export function createCalculationDetail(
       };
     }
 
+    case 'opex': {
+      const opexRate = inputs?.opex || 0.02;
+      const opexGross = (capacityWh * opexRate) / 10000; // 转换为万元
+      
+      return {
+        title: '运维成本',
+        description: `第${year}年运维成本 = 装机容量 × 运维费率`,
+        formula: '装机容量(Wh) × 费率(元/Wh/年) ÷ 10000',
+        steps: [
+          { label: '装机容量', value: (capacityWh / 1e6).toFixed(0), unit: 'MWh', formula: '输入参数' },
+          { label: '转换为Wh', value: capacityWh.toLocaleString(), unit: 'Wh', formula: 'capacity × 1,000,000' },
+          { label: '运维费率', value: opexRate.toFixed(3), unit: '元/Wh/年', formula: '输入参数' },
+          { label: '运维成本(含税)', value: opexGross.toFixed(2), unit: '万元', formula: 'capacityWh × opexRate ÷ 10000' },
+        ],
+        result: { value: rowData.opex, unit: '万元' }
+      };
+    }
+    
+    case 'loss_cost': {
+      // 需要先计算损耗电量
+      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
+      const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
+      const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
+      const lossKWh = annualChargeKWh - annualDischargeKWh;
+      const priceValley = inputs?.price_valley || 0.30;
+      const lossCostGross = (lossKWh * priceValley) / 10000; // 转换为万元
+      
+      return {
+        title: '效率损耗成本',
+        description: `第${year}年损耗成本 = 损耗电量 × 充电电价`,
+        formula: '损耗电量(万kWh) × 电价(元/kWh)',
+        steps: [
+          { label: '年充电量', value: (annualChargeKWh / 10000).toFixed(2), unit: '万kWh', formula: '见充电量计算' },
+          { label: '年放电量', value: (annualDischargeKWh / 10000).toFixed(2), unit: '万kWh', formula: '见放电量计算' },
+          { label: '损耗电量', value: (lossKWh / 10000).toFixed(2), unit: '万kWh', formula: '充电量 - 放电量' },
+          { label: '充电电价', value: priceValley.toFixed(2), unit: '元/kWh', formula: '输入参数(低谷电价)' },
+          { label: '损耗成本(含税)', value: lossCostGross.toFixed(2), unit: '万元', formula: '损耗电量 × 电价' },
+        ],
+        result: { value: rowData.loss_cost, unit: '万元' }
+      };
+    }
+    
+    case 'dep': {
+      const depYears = inputs?.dep_years || 15;
+      const residualRate = (inputs?.residual_rate || 5) / 100;
+      const totalInvNet = (inputs?.capex || 1.20) * capacityWh / (1 + 0.13); // 不含税投资（简化计算）
+      const annualDep = (totalInvNet * (1 - residualRate)) / depYears / 10000; // 年均折旧（万元）
+      
+      return {
+        title: '折旧费用',
+        description: `第${year}年折旧 = 总投资(不含税) × (1-残值率) ÷ 折旧年限`,
+        formula: '投资原值 × (1-残值率) ÷ 年限',
+        steps: [
+          { label: '系统造价', value: (inputs?.capex || 1.20).toFixed(2), unit: '元/Wh', formula: '输入参数' },
+          { label: '装机容量', value: (capacityWh / 1e6).toFixed(0), unit: 'MWh', formula: '输入参数' },
+          { label: '总投资(含税)', value: ((inputs?.capex || 1.20) * capacityWh / 10000).toFixed(0), unit: '万元', formula: 'capex × capacity' },
+          { label: '残值率', value: (residualRate * 100).toFixed(0), unit: '%', formula: '输入参数' },
+          { label: '折旧年限', value: depYears, unit: '年', formula: '输入参数' },
+          { label: '年折旧额', value: annualDep.toFixed(2), unit: '万元', formula: '投资 × (1-残值率) ÷ 年限' },
+        ],
+        result: { value: rowData.dep, unit: '万元' }
+      };
+    }
+    
+    case 'interest': {
+      const debtRatio = (inputs?.debt_ratio || 70) / 100;
+      const loanRate = (inputs?.loan_rate || 3.5) / 100;
+      const totalInvGross = (inputs?.capex || 1.20) * capacityWh; // 总投资（元）
+      const debt = totalInvGross * debtRatio / 10000; // 贷款额（万元）
+      
+      // 简化计算：假设等额本息，首年利息≈贷款余额×利率
+      // 实际应该用剩余本金计算，这里做展示用简化
+      const interest = debt * loanRate;
+      
+      return {
+        title: '利息支出',
+        description: `第${year}年利息支出（贷款比例${(debtRatio*100).toFixed(0)}%，利率${(loanRate*100).toFixed(1)}%）`,
+        formula: '剩余本金 × 年利率',
+        steps: [
+          { label: '总投资(含税)', value: (totalInvGross / 10000).toFixed(0), unit: '万元', formula: 'capex × capacity' },
+          { label: '贷款比例', value: (debtRatio * 100).toFixed(0), unit: '%', formula: '输入参数' },
+          { label: '贷款金额', value: debt.toFixed(0), unit: '万元', formula: '投资 × 贷款比例' },
+          { label: '贷款利率', value: (loanRate * 100).toFixed(2), unit: '%', formula: '输入参数' },
+          { label: '利息支出(约)', value: interest.toFixed(2), unit: '万元', formula: '贷款余额 × 利率' },
+        ],
+        result: { value: rowData.interest, unit: '万元' }
+      };
+    }
+
     default:
       return null;
   }
