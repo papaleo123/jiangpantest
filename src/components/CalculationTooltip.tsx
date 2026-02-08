@@ -146,17 +146,17 @@ export function createCalculationDetail(
       // 需要先计算放电量
       const usableCapacityDC = capacityWh * currentSOH * dod;
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
-      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
-      const elecRev = annualDischargeKWh * spread;
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000; // kWh
+      const elecRevWan = (annualDischargeKWh * spread) / 10000; // 转换为万元
       
       return {
         title: '电费套利收入',
         description: `第${year}年电费套利收入 = 放电量 × 峰谷价差`,
         formula: '放电量(万kWh) × 价差(元/kWh)',
         steps: [
-          { label: '年放电量', value: annualDischargeKWh.toFixed(2), unit: '万kWh', formula: '见放电量计算' },
+          { label: '年放电量', value: (annualDischargeKWh / 10000).toFixed(2), unit: '万kWh', formula: '见放电量计算' },
           { label: '峰谷价差', value: spread.toFixed(2), unit: '元/kWh', formula: '输入参数' },
-          { label: '电费套利收入', value: elecRev.toFixed(2), unit: '万元', formula: '放电量 × 价差' },
+          { label: '电费套利收入', value: elecRevWan.toFixed(2), unit: '万元', formula: '放电量(万kWh) × 价差 × 10000 ÷ 10000' },
         ],
         result: { value: rowData.elec_rev, unit: '万元' }
       };
@@ -173,24 +173,25 @@ export function createCalculationDetail(
       
       if (subMode === 'energy') {
         // 内蒙模式：按电量
-        subRev = annualDischargeKWh * currentSubPrice;
+        subRev = (annualDischargeKWh * currentSubPrice) / 10000; // 转换为万元
         calcSteps = [
           { label: '补贴模式', value: '按电量(内蒙模式)', unit: '', formula: '输入参数' },
-          { label: '年放电量', value: annualDischargeKWh.toFixed(2), unit: '万kWh', formula: '见放电量计算' },
+          { label: '年放电量', value: (annualDischargeKWh / 10000).toFixed(2), unit: '万kWh', formula: '见放电量计算' },
           { label: '退坡后单价', value: currentSubPrice.toFixed(3), unit: '元/kWh', formula: `${subPrice} × (1-${subDecline}%)^{year-1}` },
-          { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: '放电量 × 单价' },
+          { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: '放电量(万kWh) × 单价 × 10000 ÷ 10000' },
         ];
       } else {
         // 甘肃模式：按功率
         const kFactor = Math.min(1, durationHours / 6.0);
-        subRev = powerKW * currentSubPrice * kFactor;
+        subRev = (powerKW * currentSubPrice * kFactor) / 10000; // 转换为万元
+        const powerMW = (inputs?.capacity || 100) / (inputs?.duration_hours || 2); // MW
         calcSteps = [
           { label: '补贴模式', value: '按功率(甘肃模式)', unit: '', formula: '输入参数' },
           { label: '装机容量', value: (inputs?.capacity || 100).toFixed(0), unit: 'MWh', formula: '输入参数' },
-          { label: '功率', value: (powerKW).toFixed(0), unit: 'kW', formula: '容量÷时长' },
+          { label: '功率', value: (powerMW).toFixed(1), unit: 'MW', formula: '容量÷时长' },
           { label: 'K系数', value: kFactor.toFixed(2), unit: '', formula: `min(1, ${durationHours}/6)` },
           { label: '退坡后单价', value: currentSubPrice.toFixed(2), unit: '元/kW', formula: `${subPrice} × (1-${subDecline}%)^{year-1}` },
-          { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: '功率 × K系数 × 单价' },
+          { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: '功率(kW) × K系数 × 单价 ÷ 10000' },
         ];
       }
       
@@ -204,16 +205,16 @@ export function createCalculationDetail(
     }
     
     case 'aux_rev': {
-      const auxRev = powerKW * auxPrice;
+      const auxRev = (powerKW * auxPrice) / 10000; // 转换为万元
       
       return {
         title: '辅助服务收入',
         description: `第${year}年辅助服务收入（调峰、调频等）`,
         formula: '功率 × 单位收益',
         steps: [
-          { label: '功率', value: powerKW.toFixed(0), unit: 'kW', formula: '容量÷时长' },
+          { label: '功率', value: (powerKW / 1000).toFixed(1), unit: 'MW', formula: '容量÷时长' },
           { label: '单位收益', value: auxPrice.toFixed(2), unit: '元/kW/年', formula: '输入参数' },
-          { label: '辅助服务收入', value: auxRev.toFixed(2), unit: '万元', formula: '功率 × 单位收益' },
+          { label: '辅助服务收入', value: auxRev.toFixed(2), unit: '万元', formula: '功率(kW) × 单位收益 ÷ 10000' },
         ],
         result: { value: rowData.aux_rev, unit: '万元' }
       };
