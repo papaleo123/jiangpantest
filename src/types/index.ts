@@ -25,7 +25,11 @@ export interface InputParams {
   aug_year: number;
   aug_price: number;
   aug_dep_years: number;
-  residual_rate: number;   // 残值率 (%)
+  residual_rate: number;
+  
+  // 新增：投资明细和建设期
+  constructionPeriod?: number;
+  investmentItems?: InvestmentItem[];   // 残值率 (%)
 }
 
 // 年度详细数据行
