@@ -55,7 +55,7 @@ function App() {
             <ChartsSection result={result} inputs={inputs} />
 
             {/* 数据表格 */}
-            <DataTable result={result} onExport={exportCSV} />
+            <DataTable result={result} inputs={inputs} onExport={exportCSV} />
           </div>
         </div>
       </main>
