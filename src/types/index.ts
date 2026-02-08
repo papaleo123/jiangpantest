@@ -150,3 +150,14 @@ export interface InvestmentItem {
   taxRate: number;
   category: 'equipment' | 'civil' | 'install' | 'other';
 }
+
+// 投资明细项
+export interface InvestmentItem {
+  id: string;
+  name: string;
+  amount: number;
+  taxRate: number;
+  category: 'equipment' | 'civil' | 'install' | 'other';
+}
+
+// 扩展 InputParams（如果需要）
