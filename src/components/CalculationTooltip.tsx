@@ -33,7 +33,7 @@ export function createCalculationDetail(
   rowData: YearlyRow,
   inputs: InputParams
 ): CalculationDetail | null {
-  const year = parseInt(rowData.y) || 1;
+  const year = typeof rowData.y === "string" ? parseInt(rowData.y) || 1 : (rowData.y || 1);
   
   // 复刻 SOH 计算逻辑（与 calculatePhysics 一致）
   let currentSOH = 1.0;

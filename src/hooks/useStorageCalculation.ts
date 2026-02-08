@@ -524,7 +524,7 @@ export function useStorageCalculation() {
       for (let year = 1; year <= params.years; year++) {
         // 补容处理
         let augCost = 0;
-        let augDep = 0;
+// let augDep = 0; // 暂时未使用，注释避免 TS 错误
         if (year === inputs.aug_year && inputs.aug_year > 0) {
           augCost = params.Wh * inputs.aug_price;
           const augVAT = augCost - augCost / (1 + params.vatRate);
@@ -573,7 +573,7 @@ export function useStorageCalculation() {
         const { annualDep, updatedAssets } = calculateDepreciation(assets);
         assets = updatedAssets;
         if (year === inputs.aug_year && inputs.aug_year > 0) {
-          augDep = annualDep; // 补容当年折旧已包含新资产
+//           augDep = annualDep; // 补容当年折旧已包含新资产 // 暂时未使用
         }
 
         // 贷款计算
