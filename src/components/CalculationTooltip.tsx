@@ -36,11 +36,12 @@ export function createCalculationDetail(
   const year = typeof rowData.y === "string" ? parseInt(rowData.y) || 1 : (rowData.y || 1);
   
   // 复刻 SOH 计算逻辑（与 calculatePhysics 一致）
+  // 注意：第1年计算时 SOH=1.0（年初状态），年末才衰减
   let currentSOH = 1.0;
   if (year === 1) {
-    currentSOH = 1.0 - 0.04; // 首年衰减4%
+    currentSOH = 1.0; // 第1年无衰减
   } else {
-    currentSOH = 1.0 - 0.04 - (year - 1) * 0.025; // 后续每年2.5%
+    currentSOH = 1.0 - 0.04 - (year - 2) * 0.025; // 第2年应用首年衰减，之后每年2.5%
   }
   currentSOH = Math.max(0.60, currentSOH); // 最低60%
   
@@ -67,8 +68,8 @@ export function createCalculationDetail(
         steps: [
           { label: '装机容量', value: inputs?.capacity || 100, unit: 'MWh', formula: '输入参数' },
           { label: '转换为Wh', value: (capacityWh).toLocaleString(), unit: 'Wh', formula: 'capacity × 1,000,000' },
-          { label: 'SOH计算', value: year === 1 ? '首年衰减4%' : `首年4% + ${year-1}年×2.5%`, unit: '', formula: '逐年衰减' },
-          { label: '当前SOH', value: (currentSOH * 100).toFixed(1), unit: '%', formula: `Math.max(60%, ${(currentSOH * 100).toFixed(1)}%)` },
+          { label: 'SOH计算', value: year === 1 ? '第1年无衰减' : `首年4% + ${year-2}年×2.5%`, unit: '', formula: '年末衰减' },
+          { label: '当前SOH', value: (currentSOH * 100).toFixed(1), unit: '%', formula: '计算年度初始SOH' },
           { label: '放电深度DOD', value: (dod * 100).toFixed(0), unit: '%', formula: '输入参数' },
           { label: '可用容量', value: (usableCapacityDC / 1e6).toFixed(2), unit: 'MWh', formula: 'capacityWh × SOH × DOD' },
           { label: '日循环次数', value: cycles, unit: '次', formula: '输入参数' },
@@ -88,12 +89,12 @@ export function createCalculationDetail(
       
       return {
         title: '充电量计算',
-        description: `第${year}年充电量 = 放电量 ÷ 综合效率`,
-        formula: '放电量 ÷ (充电效率 × 放电效率)',
+        description: `第${year}年充电量 = 直流可用容量 ÷ 充电效率 × 日循环 × 运行天数`,
+        formula: '直流可用容量 ÷ 充电效率 × 日循环',
         steps: [
           { label: '直流可用容量', value: (usableCapacityDC / 1e6).toFixed(2), unit: 'MWh', formula: 'capacityWh × SOH × DOD' },
           { label: '充电效率', value: (chargeEff * 100).toFixed(0), unit: '%', formula: '输入参数' },
-          { label: '日充电量(AC)', value: (dailyChargeAC / 1000).toFixed(2), unit: '万kWh', formula: 'usableCapacityDC ÷ chargeEff × cycles' },
+          { label: '日充电量(AC)', value: (dailyChargeAC / 1000).toFixed(2), unit: 'kWh', formula: 'usableCapacityDC ÷ chargeEff × cycles' },
           { label: '年运行天数', value: runDays, unit: '天', formula: '输入参数' },
           { label: '年充电量', value: annualChargeKWh.toFixed(2), unit: '万kWh', formula: '日充电量 × runDays ÷ 1000' },
         ],
