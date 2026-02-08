@@ -86,6 +86,8 @@ function DataTableContent({
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [selectedCalc, setSelectedCalc] = useState<any>(null);
   const [isCalcOpen, setIsCalcOpen] = useState(false);
+  const [selectedCalc, setSelectedCalc] = useState<any>(null);
+  const [isCalcOpen, setIsCalcOpen] = useState(false);
 
   const getTotalRow = (): TotalRow | null => {
     if (!result) return null;
