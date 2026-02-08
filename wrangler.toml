@@ -1,0 +1,8 @@
+name = "jiangpantest1"
+compatibility_date = "2026-02-08"
+
+[build]
+command = "npm run build"
+
+[site]
+bucket = "./dist"
