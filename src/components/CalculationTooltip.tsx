@@ -69,9 +69,9 @@ export function createCalculationDetail(
           { label: 'SOH计算', value: year === 1 ? '首年衰减4%' : `首年4% + ${year-1}年×2.5%`, unit: '', formula: '逐年衰减' },
           { label: '当前SOH', value: (currentSOH * 100).toFixed(1), unit: '%', formula: `Math.max(60%, ${(currentSOH * 100).toFixed(1)}%)` },
           { label: '放电深度DOD', value: (dod * 100).toFixed(0), unit: '%', formula: '输入参数' },
-          { label: '可用容量', value: (usableCapacity / 1e6).toFixed(2), unit: 'MWh', formula: 'capacityWh × SOH × DOD' },
+          { label: '可用容量', value: (usableCapacityDC / 1e6).toFixed(2), unit: 'MWh', formula: 'capacityWh × SOH × DOD' },
           { label: '日循环次数', value: cycles, unit: '次', formula: '输入参数' },
-          { label: '日放电量', value: (dailyDischarge / 1000).toFixed(2), unit: '万kWh', formula: 'usableCapacity × cycles' },
+          { label: '日放电量', value: (dailyDischargeAC / 1000).toFixed(2), unit: '万kWh', formula: 'usableCapacity × cycles' },
           { label: '年运行天数', value: runDays, unit: '天', formula: '输入参数' },
           { label: '年放电量', value: annualDischargeKWh.toFixed(2), unit: '万kWh', formula: '(日放电量 × runDays) ÷ 1000' },
         ],
@@ -101,7 +101,7 @@ export function createCalculationDetail(
     }
     
     case 'loss_kwh': {
-      const usableCapacity = capacityWh * currentSOH * dod;
+      const usableCapacityDC = capacityWh * currentSOH * dod;
       const dailyDischarge = usableCapacity * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
       const annualChargeKWh = annualDischargeKWh / rte;
