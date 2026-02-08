@@ -103,7 +103,7 @@ export function createCalculationDetail(
     case 'loss_kwh': {
       const usableCapacity = capacityWh * currentSOH * dod;
       const dailyDischarge = usableCapacity * cycles;
-      const annualDischargeKWh = (dailyDischarge * runDays) / 1000;
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
       const annualChargeKWh = annualDischargeKWh / rte;
       const lossKWh = annualChargeKWh - annualDischargeKWh;
       
