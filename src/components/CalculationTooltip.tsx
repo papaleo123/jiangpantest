@@ -50,7 +50,6 @@ export function createCalculationDetail(
   const runDays = inputs?.run_days || 330;
   const chargeEff = (inputs?.charge_eff || 94) / 100;
   const dischargeEff = (inputs?.discharge_eff || 94) / 100;
-  const rte = chargeEff * dischargeEff;
   
   switch (type) {
     case 'discharge_kwh': {
