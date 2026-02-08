@@ -1,4 +1,10 @@
-import { TrendingUp, Wallet, Clock, Battery, Zap, Scale } from 'lucide-react';
+import os
+import re
+
+# ==========================================
+# 1. 全量重写 KpiCards.tsx (最稳妥的方式)
+# ==========================================
+KPI_CARDS_CONTENT = r"""import { TrendingUp, Wallet, Clock, Battery, Zap, Scale } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { KpiResult } from '@/types';
@@ -187,3 +193,77 @@ export function KpiCards({ kpi, stats }: KpiCardsProps) {
     </div>
   );
 }
+"""
+
+def fix_kpi_cards_file():
+    path = 'src/components/KpiCards.tsx'
+    if not os.path.exists(path):
+        print(f"❌ 找不到文件: {path}")
+        return
+    
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(KPI_CARDS_CONTENT)
+    print("✅ [KpiCards.tsx] 已全量重写，确保参数定义正确。")
+
+# ==========================================
+# 2. 修复 App.tsx 中的参数传递错误
+# ==========================================
+def fix_app_usage():
+    # 尝试在常见的入口文件中寻找错误代码
+    possible_files = ['src/App.tsx', 'src/Main.tsx', 'src/pages/Dashboard.tsx']
+    target_file = None
+    
+    for p in possible_files:
+        if os.path.exists(p):
+            with open(p, 'r', encoding='utf-8') as f:
+                content = f.read()
+                # 寻找错误的调用： stats={kpi.stats} 或者 stats={xxx}
+                # 错误特征：上个脚本可能把 result.kpi 拆分错，导致生成 stats={kpi.stats}
+                if 'KpiCards' in content:
+                    target_file = p
+                    break
+    
+    if not target_file:
+        print("⚠️ 未能在常见位置找到 App.tsx 或相关文件，跳过 App 修复。")
+        return
+
+    print(f"🔎 正在检查文件: {target_file}")
+    with open(target_file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+
+    new_lines = []
+    fixed = False
+    
+    for line in lines:
+        if '<KpiCards' in line and 'stats={' in line:
+            # 这一行就是之前脚本改坏的地方
+            # 我们直接暴力修复：把 stats={...} 替换成 stats={result?.stats}
+            # 这里的 assumption 是：你的主数据变量名叫 'result' (这在 DataTable 和其他组件里是通用的)
+            
+            # 使用正则替换：不管之前填的是什么奇怪的变量，统统改成 result?.stats
+            new_line = re.sub(r'stats=\{[^}]+\}', 'stats={result?.stats}', line)
+            
+            # 顺便修复 kpi={...} 可能出现的 nullable 报错
+            # 如果是 kpi={result.kpi} 改成 kpi={result?.kpi} 防止 null 报错
+            new_line = new_line.replace('kpi={result.kpi}', 'kpi={result?.kpi}')
+            
+            new_lines.append(new_line)
+            fixed = True
+            print(f"✅ 修复了代码行: {line.strip()} -> {new_line.strip()}")
+        else:
+            new_lines.append(line)
+
+    if fixed:
+        with open(target_file, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+    else:
+        print("ℹ️ 未发现错误的 stats={...} 调用，可能是文件路径不对或已经修复。")
+
+def main():
+    print("🚀 开始修复构建错误...")
+    fix_kpi_cards_file()
+    fix_app_usage()
+    print("\n✨ 修复完成！建议重新执行 npm run build (或直接推送 git) 测试。")
+
+if __name__ == "__main__":
+    main()
