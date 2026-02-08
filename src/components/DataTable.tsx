@@ -61,11 +61,11 @@ const taxColumns = [
 // 利润现金流列
 const cashflowColumns = [
   { key: 'y', label: '年份', align: 'left' as const, className: 'font-semibold' },
-  { key: 'ebitda', label: 'EBITDA', className: 'text-blue-600' },
+  { key: 'ebitda', label: '息税折旧前利润', className: 'text-blue-600' },
   { key: 'net_profit', label: '净利润', className: 'font-semibold' },
   { key: 'cf', label: '股东现金流', highlight: true },
   { key: 'cum_cf', label: '累计现金流', className: 'text-purple-600 font-semibold' },
-  { key: 'dscr', label: 'DSCR' },
+  { key: 'dscr', label: '偿债覆盖率', className: 'font-medium' },
 ];
 
 interface TotalRow {

@@ -51,6 +51,9 @@ export function createCalculationDetail(
   const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
   const currentSubPrice = subPrice * declineFactor;
   
+  const vatRate = (inputs?.vat_rate || 13) / 100;
+  const priceValley = inputs?.price_valley || 0.30;
+  
   switch (type) {
     case 'discharge_kwh': {
       // 完全复刻 calculatePhysics 中的计算
@@ -525,6 +528,141 @@ export function createCalculationDetail(
           { label: '总税金', value: total.toFixed(2), unit: '万元', formula: '三者之和' },
         ],
         result: { value: rowData.total_tax, unit: '万元' }
+      };
+    }
+
+    case 'ebitda': {
+      // 计算 EBITDA = 息税前利润 + 折旧
+      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
+      const elecRevGross = annualDischargeKWh * spread;
+      
+      const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
+      const currentSubRate = subPrice * declineFactor;
+      let subRevGross = 0;
+      if (subMode === 'energy') {
+        subRevGross = annualDischargeKWh * currentSubRate;
+      } else {
+        const kFactor = Math.min(1, durationHours / 6.0);
+        const actualPowerKW = ((inputs?.capacity || 100) * 1000) / durationHours;
+        subRevGross = actualPowerKW * currentSubRate * kFactor;
+      }
+      const auxRevGross = powerKW * auxPrice;
+      const totalRevGross = elecRevGross + subRevGross + auxRevGross;
+      const totalRevNet = totalRevGross / (1 + vatRate);
+      
+      const opexNet = (capacityWh * (inputs?.opex || 0.02)) / (1 + vatRate);
+      const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
+      const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
+      const lossKWh = annualChargeKWh - annualDischargeKWh;
+      const lossCostNet = (lossKWh * priceValley) / (1 + vatRate);
+      
+      const depYears = inputs?.dep_years || 15;
+      const residualRate = (inputs?.residual_rate || 5) / 100;
+      const totalInvNet = ((inputs?.capex || 1.20) * capacityWh) / (1 + vatRate);
+      const annualDep = (totalInvNet * (1 - residualRate)) / depYears / 10000; // 万元
+      
+      const ebit = (totalRevNet - opexNet - lossCostNet) / 10000 - annualDep;
+      const ebitda = ebit + annualDep;
+      
+      return {
+        title: '息税折旧前利润 EBITDA',
+        description: `第${year}年EBITDA = 息税前利润 + 折旧`,
+        formula: '营业收入 - 运维成本 - 损耗成本',
+        steps: [
+          { label: '营业收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: '总收入 ÷ (1+增值税率)' },
+          { label: '减：运维成本(不含税)', value: (opexNet / 10000).toFixed(2), unit: '万元', formula: 'capacityWh × opex ÷ (1+税率)' },
+          { label: '减：损耗成本(不含税)', value: (lossCostNet / 10000).toFixed(2), unit: '万元', formula: 'lossKWh × priceValley ÷ (1+税率)' },
+          { label: '息税前利润 EBIT', value: (ebit + annualDep).toFixed(2), unit: '万元', formula: '收入 - 成本' },
+          { label: '加：折旧费用', value: annualDep.toFixed(2), unit: '万元', formula: '投资 × (1-残值率) ÷ 年限' },
+          { label: 'EBITDA', value: ebitda.toFixed(2), unit: '万元', formula: 'EBIT + 折旧' },
+        ],
+        result: { value: rowData.ebitda, unit: '万元' }
+      };
+    }
+    
+    case 'net_profit': {
+      return {
+        title: '净利润',
+        description: `第${year}年净利润 = 总收入 - 总成本 - 税金`,
+        formula: '营业收入 - 营业成本 - 税金及附加 - 所得税',
+        steps: [
+          { label: '营业收入', value: rowData.total_rev, unit: '万元', formula: '见收入计算' },
+          { label: '减：总成本', value: (parseFloat(rowData.opex || '0') + parseFloat(rowData.loss_cost || '0') + parseFloat(rowData.dep || '0') + parseFloat(rowData.interest || '0')).toFixed(2), unit: '万元', formula: '运维+损耗+折旧+利息' },
+          { label: '减：总税金', value: rowData.total_tax, unit: '万元', formula: '见税务计算' },
+          { label: '净利润', value: rowData.net_profit, unit: '万元', formula: '收入 - 成本 - 税金' },
+        ],
+        result: { value: rowData.net_profit, unit: '万元' }
+      };
+    }
+    
+    case 'cf': {
+      return {
+        title: '股东现金流',
+        description: `第${year}年股东现金流 = 净利润 + 折旧 - 本金偿还`,
+        formula: '净利润 + 折旧 - 本金偿还 ± 补容投资',
+        steps: [
+          { label: '净利润', value: rowData.net_profit, unit: '万元', formula: '见净利润计算' },
+          { label: '加：折旧费用', value: rowData.dep, unit: '万元', formula: '非现金支出，加回' },
+          { label: '减：本金偿还', value: rowData.principal, unit: '万元', formula: '贷款本金偿还' },
+          { label: '股东现金流', value: rowData.cf, unit: '万元', formula: year === (inputs?.aug_year || 0) ? '净利润+折旧-本金-补容投资' : '净利润+折旧-本金' },
+        ],
+        result: { value: rowData.cf, unit: '万元' }
+      };
+    }
+    
+    case 'cum_cf': {
+      const prevCum = parseFloat(rowData.cum_cf || '0') - parseFloat(rowData.cf || '0');
+      return {
+        title: '累计现金流',
+        description: `第${year}年累计现金流 = 上年累计 + 当年现金流`,
+        formula: '累计至上年末 + 当年股东现金流',
+        steps: [
+          { label: '上年末累计', value: prevCum.toFixed(2), unit: '万元', formula: year === 1 ? '初始投资' : '前一年累计' },
+          { label: '当年现金流', value: rowData.cf, unit: '万元', formula: '见股东现金流' },
+          { label: '累计现金流', value: rowData.cum_cf, unit: '万元', formula: '上年累计 + 当年' },
+        ],
+        result: { value: rowData.cum_cf, unit: '万元' }
+      };
+    }
+    
+    case 'dscr': {
+      const debtRatio = (inputs?.debt_ratio || 70) / 100;
+      const hasLoan = debtRatio > 0 && year <= 10;
+      
+      if (!hasLoan || rowData.dscr === '-') {
+        return {
+          title: '偿债覆盖率 DSCR',
+          description: `第${year}年无贷款或已还清`,
+          formula: '(净利润 + 折旧 + 利息) ÷ 当期还本付息',
+          steps: [
+            { label: '状态', value: debtRatio === 0 ? '无贷款' : '贷款已还清', unit: '', formula: '' },
+            { label: 'DSCR', value: '-', unit: '', formula: '不适用' },
+          ],
+          result: { value: '-', unit: '' }
+        };
+      }
+      
+      const netProfit = parseFloat(rowData.net_profit || '0') * 10000;
+      const dep = parseFloat(rowData.dep || '0') * 10000;
+      const interest = parseFloat(rowData.interest || '0') * 10000;
+      const debtService = parseFloat(rowData.principal || '0') * 10000 + interest;
+      const dscr = debtService > 0 ? (netProfit + dep + interest) / debtService : 999;
+      
+      return {
+        title: '偿债覆盖率 DSCR',
+        description: `第${year}年偿债覆盖率 = (净利润+折旧+利息) ÷ 当期还本付息`,
+        formula: '可用于偿债现金流 ÷ 当期债务',
+        steps: [
+          { label: '净利润', value: (netProfit / 10000).toFixed(2), unit: '万元', formula: '' },
+          { label: '加：折旧', value: (dep / 10000).toFixed(2), unit: '万元', formula: '非现金支出，加回' },
+          { label: '加：利息', value: (interest / 10000).toFixed(2), unit: '万元', formula: '利息支出' },
+          { label: '可用于偿债现金流', value: ((netProfit + dep + interest) / 10000).toFixed(2), unit: '万元', formula: '净利润+折旧+利息' },
+          { label: '当期还本付息', value: (debtService / 10000).toFixed(2), unit: '万元', formula: '本金+利息' },
+          { label: 'DSCR', value: dscr.toFixed(2), unit: '', formula: '可偿债现金流 ÷ 还本付息' },
+        ],
+        result: { value: rowData.dscr, unit: '' }
       };
     }
 
