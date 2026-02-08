@@ -82,13 +82,19 @@ const calculatePhysics = (
   dod: number,
   cycles: number,
   runDays: number,
-  rte: number,
+  chargeEff: number,
+  dischargeEff: number,
   year: number
 ): PhysicsResult => {
-  const usableCapacity = capacityWh * currentSOH * dod;
-  const dailyDischarge = usableCapacity * cycles;
-  const annualDischargeKWh = Precision.calc((dailyDischarge * runDays) / 1000);
-  const annualChargeKWh = Precision.calc(annualDischargeKWh / rte);
+  const usableCapacityDC = capacityWh * currentSOH * dod; // 直流侧可用容量
+  
+  // 放电量（交流侧）= 直流可用容量 × 放电效率 × 日循环
+  const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
+  const annualDischargeKWh = Precision.calc((dailyDischargeAC * runDays) / 1000);
+  
+  // 充电量（交流侧）= 直流可用容量 ÷ 充电效率 × 日循环
+  const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
+  const annualChargeKWh = Precision.calc((dailyChargeAC * runDays) / 1000);
   const lossKWh = Precision.calc(annualChargeKWh - annualDischargeKWh);
   
   // SOH衰减
@@ -546,7 +552,7 @@ export function useStorageCalculation() {
         // 物理计算
         const physics = calculatePhysics(
           params.Wh, currentSOH, params.dod, params.cycles, 
-          params.runDays, params.rte, year
+          params.runDays, params.chargeEff, params.dischargeEff, year
         );
 
         // 收入计算

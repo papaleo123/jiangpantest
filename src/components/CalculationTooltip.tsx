@@ -55,9 +55,9 @@ export function createCalculationDetail(
   switch (type) {
     case 'discharge_kwh': {
       // 完全复刻 calculatePhysics 中的计算
-      const usableCapacity = capacityWh * currentSOH * dod;
-      const dailyDischarge = usableCapacity * cycles;
-      const annualDischargeKWh = (dailyDischarge * runDays) / 1000;
+      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles; // × 放电效率
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
       
       return {
         title: '放电量计算',
@@ -80,22 +80,21 @@ export function createCalculationDetail(
     }
     
     case 'charge_kwh': {
-      // 复刻计算
-      const usableCapacity = capacityWh * currentSOH * dod;
-      const dailyDischarge = usableCapacity * cycles;
-      const annualDischargeKWh = (dailyDischarge * runDays) / 1000;
-      const annualChargeKWh = annualDischargeKWh / rte;
+      // 复刻计算：充电量独立计算，不再通过RTE反推
+      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const dailyChargeAC = usableCapacityDC / chargeEff * cycles; // ÷ 充电效率
+      const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
       
       return {
         title: '充电量计算',
         description: `第${year}年充电量 = 放电量 ÷ 综合效率`,
         formula: '放电量 ÷ (充电效率 × 放电效率)',
         steps: [
-          { label: '年放电量', value: annualDischargeKWh.toFixed(2), unit: '万kWh', formula: '见放电量计算' },
+          { label: '直流可用容量', value: (usableCapacityDC / 1e6).toFixed(2), unit: 'MWh', formula: 'capacityWh × SOH × DOD' },
           { label: '充电效率', value: (chargeEff * 100).toFixed(0), unit: '%', formula: '输入参数' },
-          { label: '放电效率', value: (dischargeEff * 100).toFixed(0), unit: '%', formula: '输入参数' },
-          { label: '综合效率RTE', value: (rte * 100).toFixed(2), unit: '%', formula: 'chargeEff × dischargeEff' },
-          { label: '年充电量', value: annualChargeKWh.toFixed(2), unit: '万kWh', formula: '放电量 ÷ RTE' },
+          { label: '日充电量(AC)', value: (dailyChargeAC / 1000).toFixed(2), unit: '万kWh', formula: 'usableCapacityDC ÷ chargeEff × cycles' },
+          { label: '年运行天数', value: runDays, unit: '天', formula: '输入参数' },
+          { label: '年充电量', value: annualChargeKWh.toFixed(2), unit: '万kWh', formula: '日充电量 × runDays ÷ 1000' },
         ],
         result: { value: rowData.charge_kwh, unit: '万kWh' }
       };
