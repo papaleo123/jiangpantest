@@ -157,7 +157,12 @@ function DataTableContent({
                   className={`py-2 text-xs md:text-sm whitespace-nowrap px-2 cursor-pointer hover:bg-blue-100 transition-colors ${getCellClassName(col, String(row[col.key as keyof typeof row]))}`}
                   onClick={() => {
                     console.log("点击单元格:", col.key, "row:", row, "inputs:", inputs);
-                    const calcColumns = ["elec_rev", "sub_rev", "loss_cost", "income_tax", "total_tax", "ebitda"];
+                    // 所有列都支持点击查看计算过程（用于全面检查）
+const calcColumns = ["y", "soh", "charge_kwh", "discharge_kwh", "loss_kwh", 
+                     "elec_rev", "sub_rev", "aux_rev", "total_rev",
+                     "opex", "loss_cost", "dep", "interest", 
+                     "vat_pay", "surcharge", "income_tax", "total_tax",
+                     "ebitda", "net_profit", "cf", "cum_cf", "dscr"];
                     if (calcColumns.includes(col.key) && inputs) {
                       const detail = createCalculationDetail(col.key, row, inputs);
                       console.log("生成的 detail:", detail);

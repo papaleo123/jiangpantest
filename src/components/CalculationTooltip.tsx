@@ -192,6 +192,199 @@ export function createCalculationDetail(
         result: { value: rowData.ebitda, unit: '万元' }
       };
     
+
+    case 'charge_kwh':
+      return {
+        title: '充电量计算',
+        description: '年度总充电量，考虑日循环次数和运行天数',
+        formula: '容量 × 日循环次数 × 运行天数 × SOH',
+        steps: [
+          { label: '装机容量', value: inputs?.capacity || 0, unit: 'MWh' },
+          { label: '日循环次数', value: inputs?.cycles || 1, unit: '次/天' },
+          { label: '年运行天数', value: inputs?.run_days || 330, unit: '天' },
+          { label: '当前SOH', value: rowData.soh, unit: '' },
+          { label: '充电效率', value: inputs?.charge_eff || 0.9, unit: '' },
+        ],
+        result: { value: rowData.charge_kwh, unit: '万kWh' }
+      };
+    
+    case 'discharge_kwh':
+      return {
+        title: '放电量计算',
+        description: '年度总放电量，考虑放电深度和效率',
+        formula: '充电量 × DOD × 放电效率',
+        steps: [
+          { label: '充电量', value: rowData.charge_kwh, unit: '万kWh' },
+          { label: '放电深度DOD', value: inputs?.dod || 0.9, unit: '' },
+          { label: '放电效率', value: inputs?.discharge_eff || 0.92, unit: '' },
+        ],
+        result: { value: rowData.discharge_kwh, unit: '万kWh' }
+      };
+    
+    case 'loss_kwh':
+      return {
+        title: '损耗电量',
+        description: '充放电过程中的能量损耗',
+        formula: '充电量 - 放电量',
+        steps: [
+          { label: '充电量', value: rowData.charge_kwh, unit: '万kWh' },
+          { label: '放电量', value: rowData.discharge_kwh, unit: '万kWh' },
+          { label: '损耗率', value: ((parseFloat(rowData.charge_kwh) - parseFloat(rowData.discharge_kwh)) / parseFloat(rowData.charge_kwh) * 100).toFixed(2), unit: '%' },
+        ],
+        result: { value: rowData.loss_kwh, unit: '万kWh' }
+      };
+    
+    case 'soh':
+      return {
+        title: '电池健康度 SOH',
+        description: '电池容量保持率，随使用年限衰减',
+        formula: '初始SOH - 首年衰减 - 后续年衰减',
+        steps: [
+          { label: '年份', value: rowData.y, unit: '年' },
+          { label: '首年衰减', value: '4%', unit: '' },
+          { label: '后续年衰减', value: '2.5%', unit: '' },
+          { label: '计算公式', value: rowData.y === '1' ? '100% - 4%' : '上一年SOH - 2.5%', unit: '' },
+        ],
+        result: { value: rowData.soh, unit: '' }
+      };
+    
+    case 'aux_rev':
+      return {
+        title: '辅助服务收益',
+        description: '调频调峰等辅助服务收入',
+        formula: '装机容量 × 辅助服务单价 × 调节性能',
+        steps: [
+          { label: '装机容量', value: inputs?.capacity || 0, unit: 'MWh' },
+          { label: '辅助服务单价', value: inputs?.aux_price || 0, unit: '元/kW' },
+          { label: '年调节次数', value: '按实际调用', unit: '次' },
+        ],
+        result: { value: rowData.aux_rev, unit: '万元' }
+      };
+    
+    case 'opex':
+      return {
+        title: '运维成本',
+        description: '年度运营维护费用',
+        formula: '装机容量 × 单位运维成本',
+        steps: [
+          { label: '装机容量', value: inputs?.capacity || 0, unit: 'MWh' },
+          { label: '单位运维成本', value: inputs?.opex || 0, unit: '元/Wh/年' },
+          { label: '总容量', value: (inputs?.capacity || 0) * 1000000, unit: 'Wh' },
+        ],
+        result: { value: rowData.opex, unit: '万元' }
+      };
+    
+    case 'dep':
+      return {
+        title: '折旧费用',
+        description: '设备折旧费用（直线法）',
+        formula: '(投资原值 - 残值) / 折旧年限',
+        steps: [
+          { label: '投资原值', value: ((inputs?.capex || 0) * (inputs?.capacity || 0)).toFixed(2), unit: '万元' },
+          { label: '残值率', value: inputs?.residual_rate || 5, unit: '%' },
+          { label: '折旧年限', value: inputs?.dep_years || 10, unit: '年' },
+          { label: '年折旧额', value: (((inputs?.capex || 0) * (inputs?.capacity || 0) * (1 - (inputs?.residual_rate || 5)/100)) / (inputs?.dep_years || 10)).toFixed(2), unit: '万元/年' },
+        ],
+        result: { value: rowData.dep, unit: '万元' }
+      };
+    
+    case 'interest':
+      return {
+        title: '利息支出',
+        description: '贷款利息（等额本金还款法）',
+        formula: '剩余本金 × 贷款利率',
+        steps: [
+          { label: '贷款比例', value: inputs?.debt_ratio || 70, unit: '%' },
+          { label: '贷款金额', value: ((inputs?.capex || 0) * (inputs?.capacity || 0) * (inputs?.debt_ratio || 70) / 100).toFixed(2), unit: '万元' },
+          { label: '贷款利率', value: inputs?.loan_rate || 4.5, unit: '%' },
+          { label: '还款年限', value: inputs?.years || 10, unit: '年' },
+          { label: '剩余本金', value: '逐年递减', unit: '万元' },
+        ],
+        result: { value: rowData.interest, unit: '万元' }
+      };
+    
+    case 'vat_pay':
+      return {
+        title: '增值税',
+        description: '应交增值税（销项 - 进项）',
+        formula: '销项税 - 可抵扣进项税 - 留抵税额',
+        steps: [
+          { label: '销项税', value: (parseFloat(rowData.total_rev || 0) * 0.13).toFixed(2), unit: '万元', formula: '收入 × 13%' },
+          { label: '可抵扣进项', value: (parseFloat(rowData.opex || 0) * 0.13).toFixed(2), unit: '万元', formula: '运维 × 13%' },
+          { label: '留抵税额', value: '设备投资进项税，逐年抵扣', unit: '万元' },
+        ],
+        result: { value: rowData.vat_pay, unit: '万元' }
+      };
+    
+    case 'surcharge':
+      return {
+        title: '附加税',
+        description: '城建税 + 教育费附加 + 地方教育附加',
+        formula: '应交增值税 × 12%',
+        steps: [
+          { label: '应交增值税', value: rowData.vat_pay, unit: '万元' },
+          { label: '城建税(7%)', value: (parseFloat(rowData.vat_pay || 0) * 0.07).toFixed(2), unit: '万元' },
+          { label: '教育附加(3%)', value: (parseFloat(rowData.vat_pay || 0) * 0.03).toFixed(2), unit: '万元' },
+          { label: '地方教育(2%)', value: (parseFloat(rowData.vat_pay || 0) * 0.02).toFixed(2), unit: '万元' },
+        ],
+        result: { value: rowData.surcharge, unit: '万元' }
+      };
+    
+    case 'net_profit':
+      return {
+        title: '净利润',
+        description: '税后净利润',
+        formula: '营业收入 - 总成本 - 总税金',
+        steps: [
+          { label: '营业收入', value: rowData.total_rev, unit: '万元' },
+          { label: '运营成本', value: rowData.opex, unit: '万元' },
+          { label: '充电成本', value: rowData.loss_cost, unit: '万元' },
+          { label: '折旧', value: rowData.dep, unit: '万元' },
+          { label: '利息', value: rowData.interest, unit: '万元' },
+          { label: '总税金', value: rowData.total_tax, unit: '万元' },
+        ],
+        result: { value: rowData.net_profit, unit: '万元' }
+      };
+    
+    case 'cf':
+      return {
+        title: '股东现金流',
+        description: '股东可分配的现金流',
+        formula: '净利润 + 折旧 - 本金偿还',
+        steps: [
+          { label: '净利润', value: rowData.net_profit, unit: '万元' },
+          { label: '折旧加回', value: rowData.dep, unit: '万元' },
+          { label: '本金偿还', value: rowData.principal, unit: '万元' },
+        ],
+        result: { value: rowData.cf, unit: '万元' }
+      };
+    
+    case 'cum_cf':
+      return {
+        title: '累计现金流',
+        description: '历年现金流累计值',
+        formula: '∑历年股东现金流',
+        steps: [
+          { label: '上年累计', value: '前一年 cum_cf', unit: '万元' },
+          { label: '本年现金流', value: rowData.cf, unit: '万元' },
+        ],
+        result: { value: rowData.cum_cf, unit: '万元' }
+      };
+    
+    case 'dscr':
+      return {
+        title: '偿债覆盖率 DSCR',
+        description: '偿还债务能力指标',
+        formula: '(净利润 + 折旧 + 利息) / 当期还款额',
+        steps: [
+          { label: '净利润', value: rowData.net_profit, unit: '万元' },
+          { label: '折旧', value: rowData.dep, unit: '万元' },
+          { label: '利息', value: rowData.interest, unit: '万元' },
+          { label: '可用于偿债资金', value: (parseFloat(rowData.net_profit || 0) + parseFloat(rowData.dep || 0) + parseFloat(rowData.interest || 0)).toFixed(2), unit: '万元' },
+          { label: '当期还款额', value: rowData.principal, unit: '万元' },
+        ],
+        result: { value: rowData.dscr, unit: '' }
+      };
     default:
       return null;
   }
