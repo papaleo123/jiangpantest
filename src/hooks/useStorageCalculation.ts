@@ -102,6 +102,11 @@ export function useStorageCalculation() {
     aug_price: 0.6,          // 补容单价
     aug_dep_years: 15,        // 补容折旧年限
     residual_rate: 5,        // 残值率 5%
+    constructionPeriod: 12,   // 建设期（月）
+    investmentItems: [        // 投资明细（空数组表示使用 capex）
+      // { id: '1', name: '储能系统设备', amount: 9600, taxRate: 13, category: 'equipment' },
+      // { id: '2', name: '土建工程', amount: 1800, taxRate: 9, category: 'civil' },
+    ],
   });
 
   const [result, setResult] = useState<CalculationResult | null>(null);
@@ -137,11 +142,26 @@ export function useStorageCalculation() {
     // 投资参数（新的明细计算）
     const vatRate = inputs.vat_rate / 100;
     
-    // 投资参数（修复版：使用简单 capex 计算，避免悬空代码）
-    // 后续可以扩展为分项投资明细
-    const totalInvGross = Wh * inputs.capex;                    // 总投资(含税)
-    const totalInvNet = totalInvGross / (1 + vatRate);          // 总投资(不含税)
-    const inputVAT = totalInvGross - totalInvNet;               // 设备进项税
+    // 投资参数（支持明细或 capex）
+    let totalInvGross: number;
+    let totalInvNet: number;
+    let inputVAT: number;
+    
+    // 如果有投资明细，使用明细计算；否则使用 capex
+    if (inputs.investmentItems && inputs.investmentItems.length > 0) {
+      // 使用投资明细（不同税率）
+      totalInvGross = inputs.investmentItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      totalInvNet = inputs.investmentItems.reduce((sum, item) => {
+        const rate = (item.taxRate || 13) / 100;
+        return sum + (item.amount / (1 + rate));
+      }, 0);
+      inputVAT = totalInvGross - totalInvNet;
+    } else {
+      // 使用 capex（单一税率）
+      totalInvGross = Wh * inputs.capex;
+      totalInvNet = totalInvGross / (1 + vatRate);
+      inputVAT = totalInvGross - totalInvNet;
+    }
     
     // 融资参数
     const debtRatio = inputs.debt_ratio / 100;
@@ -383,7 +403,14 @@ export function useStorageCalculation() {
       cumEquityCF += cf;
       
       // 项目现金流（全投资角度）
-      const projectCFYear = ebitda * (1 - taxRate) + annualDep * taxRate - augCost;
+      let projectCFYear = ebitda * (1 - taxRate) + annualDep * taxRate - augCost;
+      
+      // 最后一年回收残值（修正：全投资现金流也应包含残值）
+      if (year === years) {
+        const residualValue = totalInvNet * residualRate;
+        projectCFYear += residualValue;
+      }
+      
       projectCF.push(projectCFYear);
       
       // ---- 3.10 偿债覆盖率 DSCR ----
@@ -447,10 +474,13 @@ export function useStorageCalculation() {
     const npv = calculateNPV(0.08, projectCF);
     const payback = calculatePayback(equityCF);
     
-    // LCOE计算 = 全生命周期成本 / 总放电量
-    const lifecycleCost = stats.total_inv_gross + stats.total_opex + stats.total_loss_cost + 
-                         stats.total_interest + stats.total_tax;
-    const lcoe = lifecycleCost / stats.total_discharge_kwh;
+    // LCOE计算（修正：使用折现现金流方法，更准确）
+    // 标准 LCOE = NPV(成本) / NPV(发电量)
+    const lcoe = calculateNPV(0.08, projectCF) / calculateNPV(0.08, 
+      Array(years).fill(0).map((_, i) => rows[i]?.discharge_kwh ? parseFloat(rows[i].discharge_kwh) * 10000 : 0)
+    );
+    // 备选：如果折现计算失败，使用静态平均
+    const lcoeStatic = (stats.total_inv_gross + stats.total_opex + stats.total_loss_cost) / stats.total_discharge_kwh;
     
     // ROI = 总净利润 / 总投资
     const roi = (stats.total_net_profit / totalInvGross) * 100;

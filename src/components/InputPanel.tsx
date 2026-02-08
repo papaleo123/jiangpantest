@@ -466,3 +466,4 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
     </div>
   );
 }
+\nimport { InvestmentBreakdown, InvestmentItem } from './InvestmentBreakdown';
