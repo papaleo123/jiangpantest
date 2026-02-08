@@ -156,13 +156,20 @@ function DataTableContent({
                   key={col.key}
                   className={`py-2 text-xs md:text-sm whitespace-nowrap px-2 cursor-pointer hover:bg-blue-100 transition-colors ${getCellClassName(col, String(row[col.key as keyof typeof row]))}`}
                   onClick={() => {
+                    console.log("点击单元格:", col.key, "row:", row, "inputs:", inputs);
                     const calcColumns = ["elec_rev", "sub_rev", "loss_cost", "income_tax", "total_tax", "ebitda"];
                     if (calcColumns.includes(col.key) && inputs) {
                       const detail = createCalculationDetail(col.key, row, inputs);
+                      console.log("生成的 detail:", detail);
                       if (detail) {
                         setSelectedCalc(detail);
                         setIsCalcOpen(true);
+                        console.log("已打开弹窗");
+                      } else {
+                        console.log("detail 为 null，不打开弹窗");
                       }
+                    } else {
+                      console.log("不在 calcColumns 中或 inputs 为空", col.key, inputs);
                     }
                   }}
                 >
