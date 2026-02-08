@@ -378,6 +378,165 @@ export function createCalculationDetail(
       };
     }
 
+    case 'vat_pay': {
+      // 复现 useStorageCalculation.ts 中的增值税计算逻辑
+      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
+      const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
+      const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
+      const lossKWh = annualChargeKWh - annualDischargeKWh;
+      
+      const spread = inputs?.spread || 0.70;
+      const priceValley = inputs?.price_valley || 0.30;
+      const vatRate = (inputs?.vat_rate || 13) / 100;
+      const subPrice = inputs?.sub_price || 0.35;
+      const subYears = inputs?.sub_years || 10;
+      const subDecline = inputs?.sub_decline || 0;
+      const auxPrice = inputs?.aux_price || 0;
+      const durationHours = inputs?.duration_hours || 2;
+      const powerKW = (inputs?.capacity || 100) * 1000 / durationHours;
+      const subMode = inputs?.sub_mode || 'energy';
+      
+      // 计算收入（含税）
+      const elecRevGross = annualDischargeKWh * spread; // 电费套利
+      let subRevGross = 0;
+      if (year <= subYears) {
+        const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
+        const currentRate = subPrice * declineFactor;
+        if (subMode === 'energy') {
+          subRevGross = annualDischargeKWh * currentRate;
+        } else {
+          const kFactor = Math.min(1, durationHours / 6.0);
+          subRevGross = powerKW * currentRate * kFactor;
+        }
+      }
+      const auxRevGross = powerKW * auxPrice;
+      const totalRevGross = elecRevGross + subRevGross + auxRevGross;
+      
+      // 销项税
+      const outputVAT = totalRevGross - (totalRevGross / (1 + vatRate));
+      
+      // 进项税（运维成本 + 损耗电费）
+      const opexGross = capacityWh * (inputs?.opex || 0.02);
+      const lossCostGross = lossKWh * priceValley;
+      const opexNet = opexGross / (1 + vatRate);
+      const lossCostNet = lossCostGross / (1 + vatRate);
+      const inputVAT = (opexGross - opexNet) + (lossCostGross - lossCostNet);
+      
+      // 增值税计算（简化，不考虑历史留抵）
+      let vatPayable = outputVAT - inputVAT;
+      if (vatPayable < 0) vatPayable = 0;
+      
+      return {
+        title: '增值税',
+        description: `第${year}年应交增值税 = 销项税 - 进项税`,
+        formula: '销项税(收入不含税部分 × 税率) - 进项税(成本中已缴增值税)',
+        steps: [
+          { label: '总收入(含税)', value: (totalRevGross / 10000).toFixed(2), unit: '万元', formula: '电费+补偿+辅助服务' },
+          { label: '总收入(不含税)', value: ((totalRevGross / (1 + vatRate)) / 10000).toFixed(2), unit: '万元', formula: '含税 ÷ (1+税率)' },
+          { label: '销项税额', value: (outputVAT / 10000).toFixed(2), unit: '万元', formula: '含税 - 不含税' },
+          { label: '运维成本(含税)', value: (opexGross / 10000).toFixed(2), unit: '万元', formula: 'capacityWh × opex' },
+          { label: '损耗电费(含税)', value: (lossCostGross / 10000).toFixed(2), unit: '万元', formula: 'lossKWh × priceValley' },
+          { label: '进项税额', value: (inputVAT / 10000).toFixed(2), unit: '万元', formula: '成本(含税) - 成本(不含税)' },
+          { label: '应交增值税', value: (vatPayable / 10000).toFixed(2), unit: '万元', formula: '销项 - 进项' },
+        ],
+        result: { value: rowData.vat_pay, unit: '万元' }
+      };
+    }
+    
+    case 'surcharge': {
+      // 附加税 = 增值税 × 12%
+      const vatPay = parseFloat(rowData.vat_pay || '0') * 10000; // 转回元计算
+      const surchargeRate = 0.12; // 城建7% + 教育3% + 地方2%
+      const surcharge = vatPay * surchargeRate;
+      
+      return {
+        title: '附加税',
+        description: `第${year}年附加税 = 增值税 × 附加税率(${surchargeRate * 100}%)`,
+        formula: '增值税 × 12%（城建7% + 教育3% + 地方2%）',
+        steps: [
+          { label: '应交增值税', value: (vatPay / 10000).toFixed(2), unit: '万元', formula: '见增值税计算' },
+          { label: '附加税率', value: '12', unit: '%', formula: '7%(城建) + 3%(教育) + 2%(地方)' },
+          { label: '附加税额', value: (surcharge / 10000).toFixed(2), unit: '万元', formula: '增值税 × 12%' },
+        ],
+        result: { value: rowData.surcharge, unit: '万元' }
+      };
+    }
+    
+    case 'income_tax': {
+      // 所得税计算需要多个前置数据
+      const usableCapacityDC = capacityWh * currentSOH * dod;
+      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
+      
+      const spread = inputs?.spread || 0.70;
+      const elecRevGross = annualDischargeKWh * spread;
+      const vatRate = (inputs?.vat_rate || 13) / 100;
+      const totalRevNet = elecRevGross / (1 + vatRate); // 简化，仅用套利收入
+      
+      // 成本（不含税）
+      const opexNet = (capacityWh * (inputs?.opex || 0.02)) / (1 + vatRate);
+      
+      // 折旧（简化计算）
+      const depYears = inputs?.dep_years || 15;
+      const residualRate = (inputs?.residual_rate || 5) / 100;
+      const totalInvNet = ((inputs?.capex || 1.20) * capacityWh) / (1 + vatRate);
+      const annualDep = (totalInvNet * (1 - residualRate)) / depYears;
+      
+      // 利息（简化）
+      const debtRatio = (inputs?.debt_ratio || 70) / 100;
+      const loanRate = (inputs?.loan_rate || 3.5) / 100;
+      const totalInvGross = (inputs?.capex || 1.20) * capacityWh;
+      const debt = totalInvGross * debtRatio;
+      const interest = debt * loanRate; // 简化首年利息
+      
+      // 附加税（引用）
+      const surcharge = parseFloat(rowData.surcharge || '0') * 10000;
+      
+      // 应纳税所得额
+      const taxableIncome = Math.max(0, totalRevNet - opexNet - annualDep - interest - surcharge);
+      const taxRate = (inputs?.tax_rate || 25) / 100;
+      const incomeTax = taxableIncome * taxRate;
+      
+      return {
+        title: '所得税',
+        description: `第${year}年所得税 = 应纳税所得额 × 税率(${taxRate * 100}%)`,
+        formula: '(收入 - 成本 - 折旧 - 利息 - 附加税) × 税率',
+        steps: [
+          { label: '营业收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: '收入 ÷ (1+增值税率)' },
+          { label: '减：运维成本', value: (opexNet / 10000).toFixed(2), unit: '万元', formula: '成本(不含税)' },
+          { label: '减：折旧费用', value: (annualDep / 10000).toFixed(2), unit: '万元', formula: '投资 × (1-残值率) ÷ 年限' },
+          { label: '减：利息支出', value: (interest / 10000).toFixed(2), unit: '万元', formula: '贷款余额 × 利率' },
+          { label: '减：附加税', value: (surcharge / 10000).toFixed(2), unit: '万元', formula: '见附加税计算' },
+          { label: '应纳税所得额', value: (taxableIncome / 10000).toFixed(2), unit: '万元', formula: '收入 - 各项扣除' },
+          { label: '所得税率', value: (taxRate * 100).toFixed(0), unit: '%', formula: '输入参数' },
+          { label: '应交所得税', value: (incomeTax / 10000).toFixed(2), unit: '万元', formula: '应纳税所得额 × 税率' },
+        ],
+        result: { value: rowData.income_tax, unit: '万元' }
+      };
+    }
+    
+    case 'total_tax': {
+      const vat = parseFloat(rowData.vat_pay || '0');
+      const surcharge = parseFloat(rowData.surcharge || '0');
+      const income = parseFloat(rowData.income_tax || '0');
+      const total = vat + surcharge + income;
+      
+      return {
+        title: '总税金',
+        description: `第${year}年总税金 = 增值税 + 附加税 + 所得税`,
+        formula: '三类税金之和',
+        steps: [
+          { label: '增值税', value: vat.toFixed(2), unit: '万元', formula: '销项 - 进项' },
+          { label: '附加税', value: surcharge.toFixed(2), unit: '万元', formula: '增值税 × 12%' },
+          { label: '所得税', value: income.toFixed(2), unit: '万元', formula: '(利润 - 扣除项) × 税率' },
+          { label: '总税金', value: total.toFixed(2), unit: '万元', formula: '三者之和' },
+        ],
+        result: { value: rowData.total_tax, unit: '万元' }
+      };
+    }
+
     default:
       return null;
   }
