@@ -696,6 +696,7 @@ export function useStorageCalculation() {
       const projIRR = calculateIRR(projectCF);
       const npv = calculateNPV(FINANCIAL_CONSTANTS.DISCOUNT_RATE, projectCF);
       const payback = calculatePayback(equityCF);
+      const projectPayback = calculatePayback(projectCF);
 
       // 修正后的LCOE计算（成本现值/发电量现值）
       const npvCost = calculateNPV(FINANCIAL_CONSTANTS.DISCOUNT_RATE, costCF);
@@ -718,6 +719,7 @@ export function useStorageCalculation() {
         npv: npv / 10000,
         roi,
         payback,
+        project_payback: projectPayback,
         min_dscr: stats.min_dscr,
         lcoe,
         total_profit: stats.total_net_profit / 10000,
