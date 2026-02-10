@@ -3,7 +3,6 @@ import { Header } from '@/components/Header';
 import { InputPanel } from '@/components/InputPanel';
 import { SensitivityChart } from "@/components/SensitivityChart";
 import { KpiCards } from '@/components/KpiCards';
-import { ChartsSection } from '@/components/ChartsSection';
 import { DataTable } from '@/components/DataTable';
 import { useStorageCalculation } from '@/hooks/useStorageCalculation';
 import { Toaster } from '@/components/ui/sonner';
@@ -62,7 +61,7 @@ function App() {
             )}
 
             {/* 图表区域 */}
-            <ChartsSection result={result} inputs={inputs} />
+            
 
             {/* 数据表格 */}
             <DataTable result={result} inputs={inputs} onExport={exportCSV} />
