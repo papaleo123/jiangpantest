@@ -9,7 +9,7 @@ export function Header() {
           <img 
             src="/logo.png" 
             alt="江槃科技" 
-            className="h-8 md:h-10 brightness-0 invert"
+            className="h-12 md:h-16 w-auto object-contain bg-white/10 rounded px-2 py-1"
           />
           <div>
             <h1 className="text-white text-sm md:text-lg font-semibold flex items-center gap-1 md:gap-2">
