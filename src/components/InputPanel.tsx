@@ -428,6 +428,29 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
         </div>
       </div>
 
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <Label className="text-xs md:text-sm text-slate-600">优惠年限 / 优惠税率</Label>
+          <div className="flex gap-2 w-[170px] md:w-[200px]">
+            <Input
+              type="number"
+              value={inputs.tax_preferential_years}
+              onChange={(e) => onUpdate('tax_preferential_years', Number(e.target.value))}
+              className="text-right font-mono w-1/2 text-sm"
+              placeholder="年"
+            />
+            <Input
+              type="number"
+              value={inputs.tax_preferential_rate}
+              onChange={(e) => onUpdate('tax_preferential_rate', Number(e.target.value))}
+              className="text-right font-mono w-1/2 text-sm"
+              placeholder="%"
+            />
+          </div>
+        </div>
+        <p className="text-[10px] text-slate-400 text-right pr-1">0为无优惠 (例如: 3年/15%)</p>
+      </div>
+
       {/* 补容策略 */}
       <SectionTitle 
         icon={<Package className="w-4 h-4 text-slate-600" />}
