@@ -433,6 +433,135 @@ export function useStorageCalculation() {
     setError(null); // 清除错误
   }, []);
 
+  
+  // ==================== 6. 敏感性分析模拟器 ====================
+  const sensitivityData = useMemo(() => {
+    if (!inputs) return [];
+    
+    // 定义要分析的变量及其标签
+    
+
+    // 定义波动范围: -20% 到 +20%
+    const ranges = [-20, -10, 0, 10, 20];
+    
+    // 基础参数缓存 (避免重复计算)
+    const baseParams = {
+        MWh: inputs.capacity,
+        hours: inputs.duration_hours,
+        MW: inputs.capacity / inputs.duration_hours,
+        Wh: inputs.capacity * 1e6,
+        kW: (inputs.capacity / inputs.duration_hours) * 1000,
+        chargeEff: inputs.charge_eff / 100,
+        dischargeEff: inputs.discharge_eff / 100,
+        rte: (inputs.charge_eff / 100) * (inputs.discharge_eff / 100),
+        dod: inputs.dod / 100,
+        years: inputs.years,
+        runDays: inputs.run_days,
+        vatRate: inputs.vat_rate / 100,
+        taxRate: inputs.tax_rate / 100,
+        // 确保使用最新的附加税逻辑 (兼容旧数据)
+        surchargeRate: (inputs.surcharge_rate ?? 12) / 100,
+        residualRate: inputs.residual_rate / 100,
+        debtRatio: inputs.debt_ratio / 100,
+        loanTerm: Math.min(FINANCIAL_CONSTANTS.MAX_LOAN_TERM, inputs.years),
+        // 优惠税率参数
+        prefYears: inputs.tax_preferential_years || 0,
+        prefRate: (inputs.tax_preferential_rate || 15) / 100
+    };
+
+    // 模拟运行一次完整的财务流，返回 IRR
+    const runSimulation = (modInputs: any) => {
+        // 1. 投资与融资
+        const totalInvGross = baseParams.Wh * modInputs.capex;
+        const totalInvNet = totalInvGross / (1 + baseParams.vatRate);
+        const inputVAT = totalInvGross - totalInvNet;
+        
+        const debt = Precision.yuan(totalInvGross * baseParams.debtRatio);
+        const equity = Precision.yuan(totalInvGross * (1 - baseParams.debtRatio));
+        // 注意：这里使用模拟的利率
+        const annualPMT = calculatePMT(debt, modInputs.loan_rate / 100, baseParams.loanTerm);
+
+        let assets = [{ value: totalInvNet, life: inputs.dep_years, age: 0, residualRate: baseParams.residualRate }];
+        let currentSOH = 1.0;
+        let remainingVAT = inputVAT;
+        let remainingDebt = debt;
+        const equityCF = [-equity];
+
+        for (let year = 1; year <= baseParams.years; year++) {
+            // 物理
+            const physics = calculatePhysics(
+                baseParams.Wh, currentSOH, baseParams.dod, modInputs.cycles, 
+                baseParams.runDays, baseParams.chargeEff, baseParams.dischargeEff, year
+            );
+            
+            // 收入 (使用模拟的价差)
+            const revenue = calculateRevenue({
+                annualDischargeKWh: physics.annualDischargeKWh,
+                spread: modInputs.spread,
+                auxPrice: inputs.aux_price,
+                powerKW: baseParams.kW,
+                durationHours: baseParams.hours,
+                subMode: inputs.sub_mode,
+                subPrice: inputs.sub_price,
+                subYears: inputs.sub_years,
+                subDecline: inputs.sub_decline,
+                vatRate: baseParams.vatRate,
+            }, year);
+
+            // 成本
+            const costs = calculateOperatingCosts(
+                baseParams.Wh, inputs.opex, physics.lossKWh, 
+                inputs.price_valley, baseParams.vatRate
+            );
+
+            // 折旧 & 贷款
+            const { annualDep, updatedAssets } = calculateDepreciation(assets);
+            assets = updatedAssets;
+            const loan = calculateLoanService(remainingDebt, annualPMT, modInputs.loan_rate / 100, year, baseParams.loanTerm);
+            remainingDebt = loan.remainingDebt;
+
+            // 税务
+            const currentTaxRate = (baseParams.prefYears > 0 && year <= baseParams.prefYears) ? baseParams.prefRate : baseParams.taxRate;
+            // 兼容性：检查 calculateTaxes 是否接受 surchargeRate，如果不接受则不传
+            // 但根据之前的修改，现在应该已经接受了。为了保险，我们按照最新的签名传递。
+            const taxes = calculateTaxes(
+                revenue.totalRevNet,
+                { opexNet: costs.opexNet, lossCostNet: costs.lossCostNet },
+                annualDep, loan.interest, revenue.outputVAT, 
+                costs.opexVAT + costs.lossVAT, remainingVAT, currentTaxRate, baseParams.surchargeRate
+            );
+            remainingVAT = taxes.newVATCredit;
+
+            // 现金流
+            let cf = taxes.netProfit + annualDep - loan.principal;
+            if (year === baseParams.years) {
+                 const residualValue = assets.reduce((sum, asset) => sum + asset.value * asset.residualRate, 0);
+                 cf += residualValue;
+            }
+            equityCF.push(cf);
+            currentSOH = physics.nextSOH;
+        }
+        return calculateIRR(equityCF) * 100;
+    };
+
+    // 生成数据
+    return ranges.map(change => {
+        const factor = 1 + change / 100;
+        return {
+            name: `${change > 0 ? '+' : ''}${change}%`,
+            // 1. 价差变动
+            spread: runSimulation({ ...inputs, spread: inputs.spread * factor, capex: inputs.capex, cycles: inputs.cycles, loan_rate: inputs.loan_rate }),
+            // 2. 造价变动 (Capex)
+            capex: runSimulation({ ...inputs, spread: inputs.spread, capex: inputs.capex * factor, cycles: inputs.cycles, loan_rate: inputs.loan_rate }),
+            // 3. 循环次数变动
+            cycles: runSimulation({ ...inputs, spread: inputs.spread, capex: inputs.capex, cycles: inputs.cycles * factor, loan_rate: inputs.loan_rate }),
+            // 4. 融资利率变动
+            loan_rate: runSimulation({ ...inputs, spread: inputs.spread, capex: inputs.capex, cycles: inputs.cycles, loan_rate: inputs.loan_rate * factor }),
+        };
+    });
+  }, [inputs]);
+    
+
   const calculate = useCallback(() => {
     try {
       // 强制类型转换，防止输入框传回字符串
@@ -795,6 +924,7 @@ export function useStorageCalculation() {
   }, [inputs.charge_eff, inputs.discharge_eff]);
 
   return {
+    sensitivityData,
     inputs,
     result,
     kpi,

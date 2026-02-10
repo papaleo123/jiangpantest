@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Header } from '@/components/Header';
 import { InputPanel } from '@/components/InputPanel';
+import { SensitivityChart } from "@/components/SensitivityChart";
 import { KpiCards } from '@/components/KpiCards';
 import { ChartsSection } from '@/components/ChartsSection';
 import { DataTable } from '@/components/DataTable';
@@ -9,7 +10,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 
 function App() {
-  const { inputs, result, kpi, powerMW, rte, updateInput, calculate, exportCSV } = useStorageCalculation();
+  const { inputs, result, kpi, sensitivityData, powerMW, rte, updateInput, calculate, exportCSV } = useStorageCalculation();
 
   // 初始计算
   useEffect(() => {
@@ -50,6 +51,15 @@ function App() {
           <div className="flex-1 min-w-0 flex flex-col gap-4">
             {/* KPI卡片 */}
             <KpiCards kpi={kpi} stats={result?.stats} />
+            
+            {/* 敏感性分析图表 */}
+            {sensitivityData && sensitivityData.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                 <div className="lg:col-span-3">
+                    <SensitivityChart data={sensitivityData} />
+                 </div>
+              </div>
+            )}
 
             {/* 图表区域 */}
             <ChartsSection result={result} inputs={inputs} />
