@@ -41,17 +41,18 @@ export function SensitivityChart({ data }: SensitivityChartProps) {
             dataKey="name" 
             stroke="#9ca3af" 
             tick={{ fontSize: 12 }}
-            label={{ value: '变动幅度', position: 'insideBottom', offset: -5, fontSize: 10, fill: '#9ca3af' }}
+            label={{ value: '变动幅度 (%)', position: 'insideBottom', offset: -5, fontSize: 10, fill: '#9ca3af' }}
           />
           <YAxis 
             stroke="#9ca3af" 
             tick={{ fontSize: 12 }} 
             unit="%"
-            width={40}
+            width={50}
+            label={{ value: 'IRR (%)', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#9ca3af', fontSize: 12 } }}
           />
           <Tooltip 
             contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-            formatter={(value: number) => [`${value.toFixed(2)}%`, '']}
+            formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
             labelStyle={{ color: '#6b7280', marginBottom: '0.5rem' }}
           />
           <Legend wrapperStyle={{ paddingTop: '10px' }} />

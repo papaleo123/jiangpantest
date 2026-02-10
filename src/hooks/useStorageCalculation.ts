@@ -442,7 +442,7 @@ export function useStorageCalculation() {
     
 
     // 定义波动范围: -20% 到 +20%
-    const ranges = [-20, -10, 0, 10, 20];
+    const ranges = Array.from({length: 21}, (_, i) => -20 + i * 2); // 精度升级: 2%步长
     
     // 基础参数缓存 (避免重复计算)
     const baseParams = {
