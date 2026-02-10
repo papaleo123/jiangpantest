@@ -474,7 +474,26 @@ export function createCalculationDetail(
       const spread = inputs?.spread || 0.70;
       const elecRevGross = annualDischargeKWh * spread;
       const vatRate = (inputs?.vat_rate || 13) / 100;
-      const totalRevNet = elecRevGross / (1 + vatRate); // 简化，仅用套利收入
+      
+      // 计算完整收入 (含补贴+辅助服务)
+      const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
+      const currentSubPriceYear = subPrice * declineFactor;
+      
+      let subRevGross = 0;
+      if (year <= (inputs?.sub_years || 10)) {
+        if (subMode === 'energy') {
+          subRevGross = annualDischargeKWh * currentSubPriceYear;
+        } else {
+          const kFactor = Math.min(1, durationHours / 6.0);
+          // powerKW 是 kW
+          subRevGross = powerKW * currentSubPriceYear * kFactor;
+        }
+      }
+      
+      const auxRevGross = powerKW * auxPrice;
+      const totalRevGross = elecRevGross + subRevGross + auxRevGross;
+      const totalRevNet = totalRevGross / (1 + vatRate);
+    
       
       // 成本（不含税）
       const opexNet = (capacityWh * (inputs?.opex || 0.02)) / (1 + vatRate);
