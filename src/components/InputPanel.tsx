@@ -408,7 +408,7 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
 
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1">
-          <Label className="text-xs md:text-sm text-slate-600">增值税 / 所得税 / 附加</Label>
+          <Label className="text-xs md:text-sm text-slate-600">增值税 / 所得税 / 附加 / 附加</Label>
           <div className="flex gap-2 w-[170px] md:w-[200px]">
             <Input
               type="number"
