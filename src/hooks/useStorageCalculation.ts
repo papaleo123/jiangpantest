@@ -322,7 +322,7 @@ const calculateTaxes = (
   }
   
   // 2. 附加税
-  const surcharge = Precision.yuan(vatPayable * surchargeRate); // 修正逻辑
+  const surcharge = Precision.yuan(vatPayable * (surchargeRate !== undefined ? surchargeRate : 0.12)); // 修正逻辑
   
   // 3. 所得税计算
   const ebit = Precision.yuan(revenueNet - costs.opexNet - costs.lossCostNet - depreciation);
