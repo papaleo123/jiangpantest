@@ -301,7 +301,7 @@ const calculateTaxes = (
   outputVAT: number,
   inputVAT: number,
   existingVATCredit: number,
-  taxRate: number
+  taxRate: number, surchargeRate: number
 ): TaxResult & { newVATCredit: number } => {
   // 1. 增值税计算
   const deductibleVAT = inputVAT;
@@ -322,7 +322,7 @@ const calculateTaxes = (
   }
   
   // 2. 附加税
-  const surcharge = Precision.yuan(vatPayable * FINANCIAL_CONSTANTS.SURCHARGE_RATE);
+  const surcharge = Precision.yuan(vatPayable * (taxRate === 0 ? 0 : surchargeRate)); // 修正逻辑
   
   // 3. 所得税计算
   const ebit = Precision.yuan(revenueNet - costs.opexNet - costs.lossCostNet - depreciation);
@@ -410,6 +410,7 @@ export function useStorageCalculation() {
     loan_rate: 3.5,
     vat_rate: 13,
     tax_rate: 25,
+    surcharge_rate: 12,
     tax_preferential_years: 0, // 默认无优惠
     tax_preferential_rate: 15, // 默认优惠税率
     aug_year: 0,
@@ -612,7 +613,7 @@ export function useStorageCalculation() {
           revenue.outputVAT,
           costs.opexVAT + costs.lossVAT,
           remainingVAT,
-          currentTaxRate
+          currentTaxRate, (inputs.surcharge_rate || 12) / 100
         );
         remainingVAT = taxes.newVATCredit;
 

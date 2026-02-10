@@ -392,14 +392,14 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
               type="number"
               value={inputs.debt_ratio}
               onChange={(e) => onUpdate('debt_ratio', Number(e.target.value))}
-              className="text-right font-mono w-1/2 text-sm"
+              className="text-right font-mono w-1/3 text-sm"
               placeholder="%"
             />
             <Input
               type="number"
               value={inputs.loan_rate}
               onChange={(e) => onUpdate('loan_rate', Number(e.target.value))}
-              className="text-right font-mono w-1/2 text-sm"
+              className="text-right font-mono w-1/3 text-sm"
               placeholder="%"
             />
           </div>
@@ -408,20 +408,20 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
 
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1">
-          <Label className="text-xs md:text-sm text-slate-600">增值税 / 所得税</Label>
+          <Label className="text-xs md:text-sm text-slate-600">增值税 / 所得税 / 附加</Label>
           <div className="flex gap-2 w-[170px] md:w-[200px]">
             <Input
               type="number"
               value={inputs.vat_rate}
               onChange={(e) => onUpdate('vat_rate', Number(e.target.value))}
-              className="text-right font-mono w-1/2 text-sm"
+              className="text-right font-mono w-1/3 text-sm"
               placeholder="%"
             />
             <Input
               type="number"
               value={inputs.tax_rate}
               onChange={(e) => onUpdate('tax_rate', Number(e.target.value))}
-              className="text-right font-mono w-1/2 text-sm"
+              className="text-right font-mono w-1/3 text-sm"
               placeholder="%"
             />
           </div>
@@ -436,14 +436,14 @@ export function InputPanel({ inputs, powerMW, rte, onUpdate, onCalculate }: Inpu
               type="number"
               value={inputs.tax_preferential_years}
               onChange={(e) => onUpdate('tax_preferential_years', Number(e.target.value))}
-              className="text-right font-mono w-1/2 text-sm"
+              className="text-right font-mono w-1/3 text-sm"
               placeholder="年"
             />
             <Input
               type="number"
               value={inputs.tax_preferential_rate}
               onChange={(e) => onUpdate('tax_preferential_rate', Number(e.target.value))}
-              className="text-right font-mono w-1/2 text-sm"
+              className="text-right font-mono w-1/3 text-sm"
               placeholder="%"
             />
           </div>

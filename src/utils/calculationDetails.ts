@@ -447,7 +447,7 @@ export function createCalculationDetail(
     case 'surcharge': {
       // 附加税 = 增值税 × 12%
       const vatPay = parseFloat(rowData.vat_pay || '0') * 10000; // 转回元计算
-      const surchargeRate = 0.12; // 城建7% + 教育3% + 地方2%
+      const surchargeRate = (inputs?.surcharge_rate || 12) / 100; // 城建7% + 教育3% + 地方2%
       const surcharge = vatPay * surchargeRate;
       
       return {
