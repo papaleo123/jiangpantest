@@ -20,6 +20,11 @@ export function createCalculationDetail(
   inputs: InputParams
 ): CalculationDetail | null {
   const year = typeof rowData.y === "string" ? parseInt(rowData.y) || 1 : (rowData.y || 1);
+
+  // [修复] 提升变量定义到函数顶层，供所有 case 使用
+  const taxRate = (inputs?.tax_rate || 25) / 100;
+  const taxPreferentialYears = inputs?.tax_preferential_years || 0;
+  const taxPreferentialRate = (inputs?.tax_preferential_rate || 15) / 100;
   
   // 复刻 SOH 计算逻辑（与 calculatePhysics 一致）
   // 注意：第1年计算时 SOH=1.0（年初状态），年末才衰减
@@ -459,6 +464,8 @@ export function createCalculationDetail(
     }
     
     case 'income_tax': {
+      const isPreferential = taxPreferentialYears > 0 && year <= taxPreferentialYears;
+      const currentTaxRate = isPreferential ? taxPreferentialRate : taxRate;
       // 所得税计算需要多个前置数据
       const usableCapacityDC = capacityWh * currentSOH * dod;
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
@@ -490,12 +497,14 @@ export function createCalculationDetail(
       
       // 应纳税所得额
       const taxableIncome = Math.max(0, totalRevNet - opexNet - annualDep - interest - surcharge);
-      const taxRate = (inputs?.tax_rate || 25) / 100;
-      const incomeTax = taxableIncome * taxRate;
+      // 移除局部定义，使用上方定义的动态逻辑
+  
+  
+      const incomeTax = taxableIncome * currentTaxRate;
       
       return {
         title: '所得税',
-        description: `第${year}年所得税 = 应纳税所得额 × 税率(${taxRate * 100}%)`,
+        description: `第${year}年所得税 = 应纳税所得额 × ${isPreferential ? '优惠' : '标准'}税率(${(currentTaxRate * 100).toFixed(1)}%)`,
         formula: '(收入 - 成本 - 折旧 - 利息 - 附加税) × 税率',
         steps: [
           { label: '营业收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: '收入 ÷ (1+增值税率)' },
@@ -504,7 +513,7 @@ export function createCalculationDetail(
           { label: '减：利息支出', value: (interest / 10000).toFixed(2), unit: '万元', formula: '贷款余额 × 利率' },
           { label: '减：附加税', value: (surcharge / 10000).toFixed(2), unit: '万元', formula: '见附加税计算' },
           { label: '应纳税所得额', value: (taxableIncome / 10000).toFixed(2), unit: '万元', formula: '收入 - 各项扣除' },
-          { label: '所得税率', value: (taxRate * 100).toFixed(0), unit: '%', formula: '输入参数' },
+          { label: '所得税率', value: (currentTaxRate * 100).toFixed(1), unit: '%', formula: isPreferential ? `优惠期(前${taxPreferentialYears}年)` : '标准税率' },
           { label: '应交所得税', value: (incomeTax / 10000).toFixed(2), unit: '万元', formula: '应纳税所得额 × 税率' },
         ],
         result: { value: rowData.income_tax, unit: '万元' }

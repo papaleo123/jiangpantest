@@ -31,6 +31,8 @@ export interface InputParams {
   loan_rate: number;
   vat_rate: number;
   tax_rate: number;
+  tax_preferential_years: number; // 税收优惠年限
+  tax_preferential_rate: number; // 优惠期税率
   aug_year: number;
   aug_price: number;
   aug_dep_years: number;

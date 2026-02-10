@@ -410,6 +410,8 @@ export function useStorageCalculation() {
     loan_rate: 3.5,
     vat_rate: 13,
     tax_rate: 25,
+    tax_preferential_years: 0, // 默认无优惠
+    tax_preferential_rate: 15, // 默认优惠税率
     aug_year: 0,
     aug_price: 0.6,
     aug_dep_years: 15,
@@ -585,6 +587,11 @@ export function useStorageCalculation() {
         const loan = calculateLoanService(remainingDebt, annualPMT, params.loanRate, year, params.loanTerm);
         remainingDebt = loan.remainingDebt;
 
+        // 动态税率：判断是否在优惠期内
+        const currentTaxRate = (inputs.tax_preferential_years > 0 && year <= inputs.tax_preferential_years)
+          ? inputs.tax_preferential_rate / 100
+          : params.taxRate;
+
         // 税务计算
         const taxes = calculateTaxes(
           revenue.totalRevNet,
@@ -594,7 +601,7 @@ export function useStorageCalculation() {
           revenue.outputVAT,
           costs.opexVAT + costs.lossVAT,
           remainingVAT,
-          params.taxRate
+          currentTaxRate
         );
         remainingVAT = taxes.newVATCredit;
 
@@ -634,7 +641,7 @@ export function useStorageCalculation() {
         
         // 项目现金流（全投资视角，不含融资）
         // 修正：使用 EBIT(1-t) + 折旧 - 补容，而非 EBITDA(1-t)
-        const projectCFYear = taxes.ebit * (1 - params.taxRate) + annualDep - augCost;
+        const projectCFYear = taxes.ebit * (1 - currentTaxRate) + annualDep - augCost;
         
         // 最后一年回收残值
         let residualValue = 0;
