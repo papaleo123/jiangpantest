@@ -434,8 +434,18 @@ export function useStorageCalculation() {
 
   const calculate = useCallback(() => {
     try {
+      // 强制类型转换，防止输入框传回字符串
+      const safeInputs = {
+        ...inputs,
+        tax_preferential_years: Number(inputs.tax_preferential_years || 0),
+        tax_preferential_rate: Number(inputs.tax_preferential_rate || 15),
+        tax_rate: Number(inputs.tax_rate || 25),
+      };
+      
+      // 使用转换后的 safeInputs 进行校验和计算
+      validateInputs(safeInputs);
       // 5.1 输入校验
-      validateInputs(inputs);
+      
       
       // 5.2 基础参数转换
       const params = {
@@ -588,9 +598,10 @@ export function useStorageCalculation() {
         remainingDebt = loan.remainingDebt;
 
         // 动态税率：判断是否在优惠期内
-        const currentTaxRate = (inputs.tax_preferential_years > 0 && year <= inputs.tax_preferential_years)
-          ? inputs.tax_preferential_rate / 100
-          : params.taxRate;
+        // 确保数值类型比较
+        const prefYears = Number(inputs.tax_preferential_years || 0);
+        const prefRate = Number(inputs.tax_preferential_rate || 15) / 100;
+        const currentTaxRate = (prefYears > 0 && year <= prefYears) ? prefRate : params.taxRate;
 
         // 税务计算
         const taxes = calculateTaxes(
