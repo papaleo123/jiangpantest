@@ -1,38 +1,55 @@
 import { useState, useCallback, useMemo } from 'react';
 import type { InputParams, CalculationResult, KpiResult, YearlyRow, Stats } from '@/types';
 
-// ==================== 1. 配置常量 ====================
+// ==================== 1. 配置常量（避免魔法数字）====================
 
 const FINANCIAL_CONSTANTS = {
+  // 衰减率
   DEGRADATION: {
     FIRST_YEAR: 0.04,
     ANNUAL: 0.025,
     MIN_SOH: 0.60,
   },
+  // 附加税率（城建7% + 教育3% + 地方2%）
   SURCHARGE_RATE: 0.12,
+  // 贷款期限上限
   MAX_LOAN_TERM: 10,
+  // 残值率
   RESIDUAL_RATE: 0.05,
+  // 折现率（用于NPV/LCOE）
   DISCOUNT_RATE: 0.08,
+  // 精度配置
   PRECISION: {
-    AMOUNT: 2,
-    PERCENTAGE: 1,
-    RATIO: 4,
+    AMOUNT: 2,    // 金额保留2位
+    PERCENTAGE: 1, // 百分比保留1位
+    RATIO: 4,     // 系数保留4位
   },
 } as const;
 
 // ==================== 2. 工具函数 ====================
 
+/**
+ * 精度处理工具 - 避免浮点数误差
+ */
 const Precision = {
   round: (n: number, digits: number = FINANCIAL_CONSTANTS.PRECISION.AMOUNT): number => {
     const factor = Math.pow(10, digits);
     return Math.round(n * factor) / factor;
   },
+  
+  // 金额分转为元（避免0.1+0.2≠0.3）
   yuan: (n: number) => Precision.round(n, 2),
+  
+  // 财务计算专用（4位精度中间计算）
   calc: (n: number) => Precision.round(n, 4),
 };
 
+/**
+ * 输入校验
+ */
 const validateInputs = (inputs: InputParams): void => {
   const errors: string[] = [];
+  
   if (inputs.capacity <= 0) errors.push('装机容量必须大于0');
   if (inputs.duration_hours <= 0) errors.push('时长必须大于0');
   if (inputs.cycles <= 0) errors.push('日循环次数必须大于0');
@@ -41,11 +58,17 @@ const validateInputs = (inputs: InputParams): void => {
   if (inputs.dod <= 0 || inputs.dod > 100) errors.push('放电深度必须在0-100之间');
   if (inputs.charge_eff <= 0 || inputs.discharge_eff <= 0) errors.push('效率必须大于0');
   if (inputs.sub_decline < 0 || inputs.sub_decline > 100) errors.push('补贴退坡率不能大于100%');
-  if (errors.length > 0) throw new Error(`参数校验失败:\n${errors.join('\n')}`);
+  
+  if (errors.length > 0) {
+    throw new Error(`参数校验失败:\n${errors.join('\n')}`);
+  }
 };
 
-// ==================== 3. 纯计算模块 ====================
+// ==================== 3. 纯计算模块（可独立单元测试）====================
 
+/**
+ * 物理计算模块 - 计算电量、SOH衰减
+ */
 interface PhysicsResult {
   annualChargeKWh: number;
   annualDischargeKWh: number;
@@ -63,37 +86,41 @@ const calculatePhysics = (
   dischargeEff: number,
   year: number
 ): PhysicsResult => {
-  const degradation = year === 1 
-    ? FINANCIAL_CONSTANTS.DEGRADATION.FIRST_YEAR 
-    : FINANCIAL_CONSTANTS.DEGRADATION.ANNUAL;
+  const usableCapacityDC = capacityWh * currentSOH * dod; // 直流侧可用容量
   
-  const yearEndSOH = Math.max(FINANCIAL_CONSTANTS.DEGRADATION.MIN_SOH, currentSOH - degradation);
-  const avgSOH = (currentSOH + yearEndSOH) / 2; 
-  
-  const usableCapacityDC = capacityWh * avgSOH * dod; 
-  
+  // 放电量（交流侧）= 直流可用容量 × 放电效率 × 日循环
   const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
   const annualDischargeKWh = Precision.calc((dailyDischargeAC * runDays) / 1000);
   
+  // 充电量（交流侧）= 直流可用容量 ÷ 充电效率 × 日循环
   const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
   const annualChargeKWh = Precision.calc((dailyChargeAC * runDays) / 1000);
   const lossKWh = Precision.calc(annualChargeKWh - annualDischargeKWh);
+  
+  // SOH衰减
+  const degradation = year === 1 
+    ? FINANCIAL_CONSTANTS.DEGRADATION.FIRST_YEAR 
+    : FINANCIAL_CONSTANTS.DEGRADATION.ANNUAL;
+  const nextSOH = Math.max(FINANCIAL_CONSTANTS.DEGRADATION.MIN_SOH, currentSOH - degradation);
   
   return {
     annualChargeKWh,
     annualDischargeKWh,
     lossKWh,
-    nextSOH: yearEndSOH,
+    nextSOH,
   };
 };
 
+/**
+ * 收入计算模块
+ */
 interface RevenueResult {
-  elecRevGross: number;
-  subRevGross: number;
-  auxRevGross: number;
-  totalRevGross: number;
-  totalRevNet: number;
-  outputVAT: number;
+  elecRevGross: number;    // 电费套利收入（含税）
+  subRevGross: number;     // 补贴收入（含税）
+  auxRevGross: number;     // 辅助服务收入（含税）
+  totalRevGross: number;   // 总收入（含税）
+  totalRevNet: number;     // 总收入（不含税）
+  outputVAT: number;       // 销项税
 }
 
 const calculateRevenue = (
@@ -111,14 +138,20 @@ const calculateRevenue = (
   },
   year: number
 ): RevenueResult => {
-  const { annualDischargeKWh, spread, auxPrice, powerKW, durationHours, subMode, subPrice, subYears, subDecline, vatRate } = params;
+  const { 
+    annualDischargeKWh, spread, auxPrice, powerKW, durationHours,
+    subMode, subPrice, subYears, subDecline, vatRate 
+  } = params;
   
+  // 电费套利
   const elecRevGross = Precision.yuan(annualDischargeKWh * spread);
   
+  // 补贴收入
   let subRevGross = 0;
   if (year <= subYears) {
     const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
     const currentRate = subPrice * declineFactor;
+    
     if (subMode === 'energy') {
       subRevGross = Precision.yuan(annualDischargeKWh * currentRate);
     } else {
@@ -127,14 +160,26 @@ const calculateRevenue = (
     }
   }
   
+  // 辅助服务
   const auxRevGross = Precision.yuan(powerKW * auxPrice);
+  
   const totalRevGross = Precision.yuan(elecRevGross + subRevGross + auxRevGross);
   const totalRevNet = Precision.yuan(totalRevGross / (1 + vatRate));
   const outputVAT = Precision.yuan(totalRevGross - totalRevNet);
   
-  return { elecRevGross, subRevGross, auxRevGross, totalRevGross, totalRevNet, outputVAT };
+  return {
+    elecRevGross,
+    subRevGross,
+    auxRevGross,
+    totalRevGross,
+    totalRevNet,
+    outputVAT,
+  };
 };
 
+/**
+ * 运营成本计算
+ */
 interface CostResult {
   opexGross: number;
   opexNet: number;
@@ -151,21 +196,33 @@ const calculateOperatingCosts = (
   priceValley: number,
   vatRate: number
 ): CostResult => {
+  // 运维成本
   const opexGross = Precision.yuan(capacityWh * opexRate);
   const opexNet = Precision.yuan(opexGross / (1 + vatRate));
   const opexVAT = Precision.yuan(opexGross - opexNet);
   
+  // 损耗电费
   const lossCostGross = Precision.yuan(lossKWh * priceValley);
   const lossCostNet = Precision.yuan(lossCostGross / (1 + vatRate));
   const lossVAT = Precision.yuan(lossCostGross - lossCostNet);
   
-  return { opexGross, opexNet, opexVAT, lossCostGross, lossCostNet, lossVAT };
+  return {
+    opexGross,
+    opexNet,
+    opexVAT,
+    lossCostGross,
+    lossCostNet,
+    lossVAT,
+  };
 };
 
+/**
+ * 折旧计算 - 支持多资产
+ */
 interface Asset {
-  value: number;
-  life: number;
-  age: number;
+  value: number;      // 资产原值(不含税)
+  life: number;       // 折旧年限
+  age: number;        // 已使用年数
   residualRate: number;
 }
 
@@ -177,16 +234,20 @@ const calculateDepreciation = (assets: Asset[]): { annualDep: number; updatedAss
     if (asset.age < asset.life) {
       const dep = Precision.yuan(asset.value * (1 - asset.residualRate) / asset.life);
       annualDep += dep;
+      updatedAssets.push({
+        ...asset,
+        age: asset.age + 1,
+      });
     }
-    updatedAssets.push({
-      ...asset,
-      age: asset.age + 1,
-    });
+    // 已折旧完毕的资产不再加入列表
   }
   
   return { annualDep: Precision.yuan(annualDep), updatedAssets };
 };
 
+/**
+ * 贷款还款计算 - 等额本息
+ */
 interface LoanResult {
   interest: number;
   principal: number;
@@ -204,23 +265,32 @@ const calculateLoanService = (
   if (year > loanTerm || remainingDebt <= 1) {
     return { interest: 0, principal: 0, debtService: 0, remainingDebt };
   }
+  
   const interest = Precision.yuan(remainingDebt * loanRate);
   const payment = Math.min(annualPMT, remainingDebt + interest);
   const principal = Precision.yuan(payment - interest);
   const newRemainingDebt = Precision.yuan(remainingDebt - principal);
   
-  return { interest, principal, debtService: payment, remainingDebt: newRemainingDebt };
+  return {
+    interest,
+    principal,
+    debtService: payment,
+    remainingDebt: newRemainingDebt,
+  };
 };
 
+/**
+ * 税务计算模块
+ */
 interface TaxResult {
-  vatPayable: number;
-  remainingVATCredit: number;
-  surcharge: number;
-  taxableIncome: number;
-  incomeTax: number;
-  netProfit: number;
-  ebit: number;
-  ebitda: number;
+  vatPayable: number;      // 应交增值税
+  remainingVATCredit: number; // 剩余留抵税额
+  surcharge: number;       // 附加税
+  taxableIncome: number;   // 应纳税所得额
+  incomeTax: number;       // 所得税
+  netProfit: number;       // 净利润
+  ebit: number;            // 息税前利润
+  ebitda: number;          // 息税折旧前利润
 }
 
 const calculateTaxes = (
@@ -231,9 +301,9 @@ const calculateTaxes = (
   outputVAT: number,
   inputVAT: number,
   existingVATCredit: number,
-  taxRate: number, 
-  surchargeRate: number
+  taxRate: number, surchargeRate: number
 ): TaxResult & { newVATCredit: number } => {
+  // 1. 增值税计算
   const deductibleVAT = inputVAT;
   let vatPayable = Precision.yuan(outputVAT - deductibleVAT);
   let remainingVAT = existingVATCredit;
@@ -251,17 +321,14 @@ const calculateTaxes = (
     vatPayable = 0;
   }
   
-  const surcharge = Precision.yuan(vatPayable * surchargeRate);
+  // 2. 附加税
+  const surcharge = Precision.yuan(vatPayable * (surchargeRate !== undefined ? surchargeRate : 0.12)); // 修正逻辑
   
-  // EBIT = 收入 - 运维 - 损耗 - 折旧
+  // 3. 所得税计算
   const ebit = Precision.yuan(revenueNet - costs.opexNet - costs.lossCostNet - depreciation);
   const ebitda = Precision.yuan(ebit + depreciation);
-  
-  // 应纳税所得额 = EBIT - 利息 - 附加税
   const taxableIncome = Math.max(0, Precision.yuan(ebit - interest - surcharge));
   const incomeTax = Precision.yuan(taxableIncome * taxRate);
-  
-  // 净利润
   const netProfit = Precision.yuan(ebit - interest - surcharge - incomeTax);
   
   return {
@@ -276,6 +343,8 @@ const calculateTaxes = (
     ebitda,
   };
 };
+
+// ==================== 4. 核心财务算法（保持原有）====================
 
 function calculateIRR(cf: number[]): number {
   if (cf.length === 0) return 0;
@@ -315,7 +384,7 @@ function calculatePMT(principal: number, rate: number, periods: number): number 
   return principal * rate * Math.pow(1 + rate, periods) / (Math.pow(1 + rate, periods) - 1);
 }
 
-// ==================== 5. 主 Hook ====================
+// ==================== 5. 重构后的主Hook ====================
 
 export function useStorageCalculation() {
   const [inputs, setInputs] = useState<InputParams>({
@@ -342,8 +411,8 @@ export function useStorageCalculation() {
     vat_rate: 13,
     tax_rate: 25,
     surcharge_rate: 12,
-    tax_preferential_years: 0, 
-    tax_preferential_rate: 15,
+    tax_preferential_years: 0, // 默认无优惠
+    tax_preferential_rate: 15, // 默认优惠税率
     aug_year: 0,
     aug_price: 0.6,
     aug_dep_years: 15,
@@ -361,16 +430,141 @@ export function useStorageCalculation() {
     value: InputParams[K]
   ) => {
     setInputs(prev => ({ ...prev, [key]: value }));
-    setError(null);
+    setError(null); // 清除错误
   }, []);
 
+  
+  // ==================== 6. 敏感性分析模拟器 ====================
   const sensitivityData = useMemo(() => {
     if (!inputs) return [];
-    return []; 
+    
+    // 定义要分析的变量及其标签
+    
+
+    // 定义波动范围: -20% 到 +20%
+    const ranges = Array.from({length: 21}, (_, i) => -20 + i * 2); // 精度升级: 2%步长
+    
+    // 基础参数缓存 (避免重复计算)
+    const baseParams = {
+        MWh: inputs.capacity,
+        hours: inputs.duration_hours,
+        MW: inputs.capacity / inputs.duration_hours,
+        Wh: inputs.capacity * 1e6,
+        kW: (inputs.capacity / inputs.duration_hours) * 1000,
+        chargeEff: inputs.charge_eff / 100,
+        dischargeEff: inputs.discharge_eff / 100,
+        rte: (inputs.charge_eff / 100) * (inputs.discharge_eff / 100),
+        dod: inputs.dod / 100,
+        years: inputs.years,
+        runDays: inputs.run_days,
+        vatRate: inputs.vat_rate / 100,
+        taxRate: inputs.tax_rate / 100,
+        // 确保使用最新的附加税逻辑 (兼容旧数据)
+        surchargeRate: (inputs.surcharge_rate ?? 12) / 100,
+        residualRate: inputs.residual_rate / 100,
+        debtRatio: inputs.debt_ratio / 100,
+        loanTerm: Math.min(FINANCIAL_CONSTANTS.MAX_LOAN_TERM, inputs.years),
+        // 优惠税率参数
+        prefYears: inputs.tax_preferential_years || 0,
+        prefRate: (inputs.tax_preferential_rate || 15) / 100
+    };
+
+    // 模拟运行一次完整的财务流，返回 IRR
+    const runSimulation = (modInputs: any) => {
+        // 1. 投资与融资
+        const totalInvGross = baseParams.Wh * modInputs.capex;
+        const totalInvNet = totalInvGross / (1 + baseParams.vatRate);
+        const inputVAT = totalInvGross - totalInvNet;
+        
+        const debt = Precision.yuan(totalInvGross * baseParams.debtRatio);
+        const equity = Precision.yuan(totalInvGross * (1 - baseParams.debtRatio));
+        // 注意：这里使用模拟的利率
+        const annualPMT = calculatePMT(debt, modInputs.loan_rate / 100, baseParams.loanTerm);
+
+        let assets = [{ value: totalInvNet, life: inputs.dep_years, age: 0, residualRate: baseParams.residualRate }];
+        let currentSOH = 1.0;
+        let remainingVAT = inputVAT;
+        let remainingDebt = debt;
+        const equityCF = [-equity];
+
+        for (let year = 1; year <= baseParams.years; year++) {
+            // 物理
+            const physics = calculatePhysics(
+                baseParams.Wh, currentSOH, baseParams.dod, modInputs.cycles, 
+                baseParams.runDays, baseParams.chargeEff, baseParams.dischargeEff, year
+            );
+            
+            // 收入 (使用模拟的价差)
+            const revenue = calculateRevenue({
+                annualDischargeKWh: physics.annualDischargeKWh,
+                spread: modInputs.spread,
+                auxPrice: inputs.aux_price,
+                powerKW: baseParams.kW,
+                durationHours: baseParams.hours,
+                subMode: inputs.sub_mode,
+                subPrice: inputs.sub_price,
+                subYears: inputs.sub_years,
+                subDecline: inputs.sub_decline,
+                vatRate: baseParams.vatRate,
+            }, year);
+
+            // 成本
+            const costs = calculateOperatingCosts(
+                baseParams.Wh, inputs.opex, physics.lossKWh, 
+                inputs.price_valley, baseParams.vatRate
+            );
+
+            // 折旧 & 贷款
+            const { annualDep, updatedAssets } = calculateDepreciation(assets);
+            assets = updatedAssets;
+            const loan = calculateLoanService(remainingDebt, annualPMT, modInputs.loan_rate / 100, year, baseParams.loanTerm);
+            remainingDebt = loan.remainingDebt;
+
+            // 税务
+            const currentTaxRate = (baseParams.prefYears > 0 && year <= baseParams.prefYears) ? baseParams.prefRate : baseParams.taxRate;
+            // 兼容性：检查 calculateTaxes 是否接受 surchargeRate，如果不接受则不传
+            // 但根据之前的修改，现在应该已经接受了。为了保险，我们按照最新的签名传递。
+            const taxes = calculateTaxes(
+                revenue.totalRevNet,
+                { opexNet: costs.opexNet, lossCostNet: costs.lossCostNet },
+                annualDep, loan.interest, revenue.outputVAT, 
+                costs.opexVAT + costs.lossVAT, remainingVAT, currentTaxRate, baseParams.surchargeRate
+            );
+            remainingVAT = taxes.newVATCredit;
+
+            // 现金流
+            let cf = taxes.netProfit + annualDep - loan.principal;
+            if (year === baseParams.years) {
+                 const residualValue = assets.reduce((sum, asset) => sum + asset.value * asset.residualRate, 0);
+                 cf += residualValue;
+            }
+            equityCF.push(cf);
+            currentSOH = physics.nextSOH;
+        }
+        return calculateIRR(equityCF) * 100;
+    };
+
+    // 生成数据
+    return ranges.map(change => {
+        const factor = 1 + change / 100;
+        return {
+            name: `${change > 0 ? '+' : ''}${change}%`,
+            // 1. 价差变动
+            spread: runSimulation({ ...inputs, spread: inputs.spread * factor, capex: inputs.capex, cycles: inputs.cycles, loan_rate: inputs.loan_rate }),
+            // 2. 造价变动 (Capex)
+            capex: runSimulation({ ...inputs, spread: inputs.spread, capex: inputs.capex * factor, cycles: inputs.cycles, loan_rate: inputs.loan_rate }),
+            // 3. 循环次数变动
+            cycles: runSimulation({ ...inputs, spread: inputs.spread, capex: inputs.capex, cycles: inputs.cycles * factor, loan_rate: inputs.loan_rate }),
+            // 4. 融资利率变动
+            loan_rate: runSimulation({ ...inputs, spread: inputs.spread, capex: inputs.capex, cycles: inputs.cycles, loan_rate: inputs.loan_rate * factor }),
+        };
+    });
   }, [inputs]);
+    
 
   const calculate = useCallback(() => {
     try {
+      // 强制类型转换，防止输入框传回字符串
       const safeInputs = {
         ...inputs,
         tax_preferential_years: Number(inputs.tax_preferential_years || 0),
@@ -378,8 +572,12 @@ export function useStorageCalculation() {
         tax_rate: Number(inputs.tax_rate || 25),
       };
       
+      // 使用转换后的 safeInputs 进行校验和计算
       validateInputs(safeInputs);
+      // 5.1 输入校验
       
+      
+      // 5.2 基础参数转换
       const params = {
         MWh: inputs.capacity,
         hours: inputs.duration_hours,
@@ -401,6 +599,7 @@ export function useStorageCalculation() {
         loanTerm: Math.min(FINANCIAL_CONSTANTS.MAX_LOAN_TERM, inputs.years),
       };
 
+      // 5.3 投资计算（支持明细或 Capex）
       let totalInvGross: number;
       let totalInvNet: number;
       let inputVAT: number;
@@ -418,10 +617,12 @@ export function useStorageCalculation() {
         inputVAT = totalInvGross - totalInvNet;
       }
 
+      // 融资计算
       const debt = Precision.yuan(totalInvGross * params.debtRatio);
       const equity = Precision.yuan(totalInvGross * (1 - params.debtRatio));
       const annualPMT = calculatePMT(debt, params.loanRate, params.loanTerm);
 
+      // 5.4 初始化资产
       let assets: Asset[] = [{
         value: totalInvNet,
         life: inputs.dep_years,
@@ -429,36 +630,52 @@ export function useStorageCalculation() {
         residualRate: params.residualRate,
       }];
 
+      // 5.5 年度循环计算
       let currentSOH = 1.0;
       let remainingVAT = inputVAT;
       let remainingDebt = debt;
       
       const equityCF: number[] = [-equity];
       const projectCF: number[] = [-totalInvNet];
-      const costCF: number[] = [-totalInvNet];
-      const generationCF: number[] = [0];
+      const costCF: number[] = [-totalInvNet]; // 用于LCOE：不含税初始投资
+      const generationCF: number[] = [0];      // 用于LCOE：发电量
       
       const rows: YearlyRow[] = [];
       let cumEquityCF = -equity;
       let minDSCR = 999;
       
       const stats: Stats = {
-        total_charge_kwh: 0, total_discharge_kwh: 0, total_loss_kwh: 0,
-        total_elec_rev: 0, total_sub_rev: 0, total_aux_rev: 0, total_rev: 0,
-        total_opex: 0, total_loss_cost: 0, total_dep: 0, total_interest: 0,
-        total_vat: 0, total_surcharge: 0, total_income_tax: 0, total_tax: 0,
-        total_net_profit: 0, total_principal: 0, min_dscr: 999,
-        total_inv_gross: totalInvGross, total_inv_net: totalInvNet, equity, debt,
+        total_charge_kwh: 0,
+        total_discharge_kwh: 0,
+        total_loss_kwh: 0,
+        total_elec_rev: 0,
+        total_sub_rev: 0,
+        total_aux_rev: 0,
+        total_rev: 0,
+        total_opex: 0,
+        total_loss_cost: 0,
+        total_dep: 0,
+        total_interest: 0,
+        total_vat: 0,
+        total_surcharge: 0,
+        total_income_tax: 0,
+        total_tax: 0,
+        total_net_profit: 0,
+        total_principal: 0,
+        min_dscr: 999,
+        total_inv_gross: totalInvGross,
+        total_inv_net: totalInvNet,
+        equity,
+        debt,
       };
 
       for (let year = 1; year <= params.years; year++) {
-        let augCost = 0;     
-        let augNet = 0;     
-        
+        // 补容处理
+        let augCost = 0;
         if (year === inputs.aug_year && inputs.aug_year > 0) {
           augCost = params.Wh * inputs.aug_price;
           const augVAT = augCost - augCost / (1 + params.vatRate);
-          augNet = augCost / (1 + params.vatRate);
+          const augNet = augCost / (1 + params.vatRate);
           
           remainingVAT += augVAT;
           assets.push({
@@ -467,14 +684,19 @@ export function useStorageCalculation() {
             age: 0,
             residualRate: params.residualRate,
           });
-          currentSOH = 0.95; 
+          currentSOH = 0.95;
+          
+          // 补容当年增加投资支出（用于LCOE）
+          costCF[0] = Precision.yuan(costCF[0] + augNet);
         }
 
+        // 物理计算
         const physics = calculatePhysics(
           params.Wh, currentSOH, params.dod, params.cycles, 
           params.runDays, params.chargeEff, params.dischargeEff, year
         );
 
+        // 收入计算
         const revenue = calculateRevenue({
           annualDischargeKWh: physics.annualDischargeKWh,
           spread: inputs.spread,
@@ -488,31 +710,43 @@ export function useStorageCalculation() {
           vatRate: params.vatRate,
         }, year);
 
+        // 成本计算
         const costs = calculateOperatingCosts(
           params.Wh, inputs.opex, physics.lossKWh, 
           inputs.price_valley, params.vatRate
         );
 
+        // 折旧计算
         const { annualDep, updatedAssets } = calculateDepreciation(assets);
         assets = updatedAssets;
+        if (year === inputs.aug_year && inputs.aug_year > 0) {
+//           _augDep = annualDep; // 补容当年折旧已包含新资产 // 暂时未使用
+        }
 
+        // 贷款计算
         const loan = calculateLoanService(remainingDebt, annualPMT, params.loanRate, year, params.loanTerm);
         remainingDebt = loan.remainingDebt;
 
-        const surchargeRateInput = (inputs.surcharge_rate ?? 12) / 100;
+        // 动态税率：判断是否在优惠期内
+        // 确保数值类型比较
         const prefYears = Number(inputs.tax_preferential_years || 0);
         const prefRate = Number(inputs.tax_preferential_rate || 15) / 100;
         const currentTaxRate = (prefYears > 0 && year <= prefYears) ? prefRate : params.taxRate;
 
+        // 税务计算
         const taxes = calculateTaxes(
           revenue.totalRevNet,
           { opexNet: costs.opexNet, lossCostNet: costs.lossCostNet },
-          annualDep, loan.interest, revenue.outputVAT,
-          costs.opexVAT + costs.lossVAT, remainingVAT,
-          currentTaxRate, surchargeRateInput
+          annualDep,
+          loan.interest,
+          revenue.outputVAT,
+          costs.opexVAT + costs.lossVAT,
+          remainingVAT,
+          currentTaxRate, (inputs.surcharge_rate || 12) / 100
         );
         remainingVAT = taxes.newVATCredit;
 
+        // 更新统计
         stats.total_charge_kwh += physics.annualChargeKWh;
         stats.total_discharge_kwh += physics.annualDischargeKWh;
         stats.total_loss_kwh += physics.lossKWh;
@@ -531,38 +765,47 @@ export function useStorageCalculation() {
         stats.total_net_profit += taxes.netProfit;
         stats.total_principal += loan.principal;
 
-        const dscr = loan.debtService > 0 ? (taxes.netProfit + annualDep + loan.interest) / loan.debtService : 999;
-        if (year <= params.loanTerm && dscr < minDSCR) minDSCR = dscr;
+        // DSCR计算
+        const dscr = loan.debtService > 0 
+          ? (taxes.netProfit + annualDep + loan.interest) / loan.debtService 
+          : 999;
+        if (year <= params.loanTerm && dscr < minDSCR) {
+          minDSCR = dscr;
+        }
 
+        // 现金流计算
+        // 股东现金流 = 净利润 + 折旧 - 本金 - 补容投资
         let cf = taxes.netProfit + annualDep - loan.principal;
         if (year === inputs.aug_year && inputs.aug_year > 0) {
-          cf -= augCost; 
+          cf -= augCost;
         }
         
-        const nopat = (taxes.ebit - taxes.surcharge) * (1 - currentTaxRate);
-        let projectCFYear = nopat + annualDep;
-        if (year === inputs.aug_year && inputs.aug_year > 0) {
-           projectCFYear -= augNet;
-        }
+        // 项目现金流（全投资视角，不含融资）
+        // 修正：使用 EBIT(1-t) + 折旧 - 补容，而非 EBITDA(1-t)
+        const projectCFYear = taxes.ebit * (1 - currentTaxRate) + annualDep - augCost;
         
+        // 最后一年回收残值
         let residualValue = 0;
         if (year === params.years) {
-          residualValue = assets.reduce((sum, asset) => sum + asset.value * asset.residualRate, 0);
+          // 计算剩余资产残值（考虑补容）
+          residualValue = assets.reduce((sum, asset) => {
+            return sum + asset.value * asset.residualRate;
+          }, 0);
           cf += residualValue;
-          projectCFYear += residualValue;
         }
 
         cumEquityCF += cf;
+        
         equityCF.push(Precision.yuan(cf));
-        projectCF.push(Precision.yuan(projectCFYear));
+        projectCF.push(Precision.yuan(projectCFYear + (year === params.years ? residualValue : 0)));
         
-        let yearCostLCOE = costs.opexNet + costs.lossCostNet;
-        if (year === inputs.aug_year && inputs.aug_year > 0) yearCostLCOE += augNet;
-        if (year === params.years) yearCostLCOE -= residualValue;
-        
-        costCF.push(Precision.yuan(yearCostLCOE));
+        // LCOE计算准备
+        // 成本现金流：运维(不含税) + 损耗(不含税) + 税金 - 补容(不含税)
+        const yearCostNet = costs.opexNet + costs.lossCostNet + taxes.vatPayable + taxes.surcharge + taxes.incomeTax;
+        costCF.push(Precision.yuan(yearCostNet - (year === params.years ? residualValue : 0)));
         generationCF.push(physics.annualDischargeKWh);
 
+        // 记录行数据
         rows.push({
           y: year,
           soh: `${(currentSOH * 100).toFixed(1)}%`,
@@ -590,21 +833,25 @@ export function useStorageCalculation() {
           dscr: dscr === 999 ? '-' : dscr.toFixed(2),
         });
 
+        // 更新SOH用于下一年
         currentSOH = physics.nextSOH;
       }
 
       stats.min_dscr = minDSCR === 999 ? 0 : minDSCR;
 
+      // 5.6 KPI计算
       const irr = calculateIRR(equityCF);
       const projIRR = calculateIRR(projectCF);
       const npv = calculateNPV(FINANCIAL_CONSTANTS.DISCOUNT_RATE, projectCF);
       const payback = calculatePayback(equityCF);
       const projectPayback = calculatePayback(projectCF);
 
+      // 修正后的LCOE计算（成本现值/发电量现值）
       const npvCost = calculateNPV(FINANCIAL_CONSTANTS.DISCOUNT_RATE, costCF);
       const npvGen = calculateNPV(FINANCIAL_CONSTANTS.DISCOUNT_RATE, generationCF);
       const lcoe = npvGen > 0 ? Precision.yuan(npvCost / npvGen) : 0;
       
+      // ROI计算
       const roi = (stats.total_net_profit / totalInvGross) * 100;
 
       const calcResult: CalculationResult = {
@@ -639,6 +886,7 @@ export function useStorageCalculation() {
 
   const exportCSV = useCallback(() => {
     if (!result) return;
+    
     const headers = [
       '年份', 'SOH', '充电量(万kWh)', '放电量(万kWh)', '损耗电量(万kWh)',
       '电费收入', '补偿收入', '或有收益', '总收入',
@@ -646,19 +894,21 @@ export function useStorageCalculation() {
       '增值税', '附加税', '所得税', '总税金',
       'EBIT', 'EBITDA', '净利润', '本金偿还', '股东现金流', '累计现金流', 'DSCR'
     ];
-    let txt = headers.join(',') + '\\n';
+    
+    let txt = headers.join(',') + '\n';
     result.rows.forEach(r => {
       txt += `${r.y},${r.soh},${r.charge_kwh},${r.discharge_kwh},${r.loss_kwh},` +
              `${r.elec_rev},${r.sub_rev},${r.aux_rev},${r.total_rev},` +
              `${r.opex},${r.loss_cost},${r.dep},${r.interest},` +
              `${r.vat_pay},${r.surcharge},${r.income_tax},${r.total_tax},` +
-             `${r.ebit},${r.ebitda},${r.net_profit},${r.principal},${r.cf},${r.cum_cf},${r.dscr}\\n`;
+             `${r.ebit},${r.ebitda},${r.net_profit},${r.principal},${r.cf},${r.cum_cf},${r.dscr}\n`;
     });
+    
     const blob = new Blob([txt], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = '储能财务分析表_V15_Fixed.csv';
+    link.download = '储能财务分析表_V14_重构版.csv';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -686,3 +936,4 @@ export function useStorageCalculation() {
     exportCSV,
   };
 }
+

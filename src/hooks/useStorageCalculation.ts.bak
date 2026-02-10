@@ -67,6 +67,7 @@ const calculatePhysics = (
     ? FINANCIAL_CONSTANTS.DEGRADATION.FIRST_YEAR 
     : FINANCIAL_CONSTANTS.DEGRADATION.ANNUAL;
   
+  // 物理计算逻辑：计算当年的平均SOH用于发电
   const yearEndSOH = Math.max(FINANCIAL_CONSTANTS.DEGRADATION.MIN_SOH, currentSOH - degradation);
   const avgSOH = (currentSOH + yearEndSOH) / 2; 
   
@@ -169,15 +170,18 @@ interface Asset {
   residualRate: number;
 }
 
+// 修复：资产保留逻辑
 const calculateDepreciation = (assets: Asset[]): { annualDep: number; updatedAssets: Asset[] } => {
   let annualDep = 0;
   const updatedAssets: Asset[] = [];
   
   for (const asset of assets) {
+    // 只有在寿命内才计算折旧
     if (asset.age < asset.life) {
       const dep = Precision.yuan(asset.value * (1 - asset.residualRate) / asset.life);
       annualDep += dep;
     }
+    // 关键修复：无论是否折旧完毕，资产都保留在数组中，用于计算残值
     updatedAssets.push({
       ...asset,
       age: asset.age + 1,
@@ -277,6 +281,8 @@ const calculateTaxes = (
   };
 };
 
+// ==================== 4. 核心财务算法 ====================
+
 function calculateIRR(cf: number[]): number {
   if (cf.length === 0) return 0;
   let guess = 0.1;
@@ -366,6 +372,8 @@ export function useStorageCalculation() {
 
   const sensitivityData = useMemo(() => {
     if (!inputs) return [];
+    
+    // 敏感性分析简化版：仅返回空数组或实现核心逻辑
     return []; 
   }, [inputs]);
 
@@ -401,6 +409,7 @@ export function useStorageCalculation() {
         loanTerm: Math.min(FINANCIAL_CONSTANTS.MAX_LOAN_TERM, inputs.years),
       };
 
+      // 投资计算
       let totalInvGross: number;
       let totalInvNet: number;
       let inputVAT: number;
@@ -452,8 +461,9 @@ export function useStorageCalculation() {
       };
 
       for (let year = 1; year <= params.years; year++) {
-        let augCost = 0;     
-        let augNet = 0;     
+        // --- 修复: 补容逻辑前置 ---
+        let augCost = 0;     // 补容总投资（含税）
+        let augNet = 0;      // 补容净值（不含税）
         
         if (year === inputs.aug_year && inputs.aug_year > 0) {
           augCost = params.Wh * inputs.aug_price;
@@ -467,14 +477,16 @@ export function useStorageCalculation() {
             age: 0,
             residualRate: params.residualRate,
           });
-          currentSOH = 0.95; 
+          currentSOH = 0.95; // 补容当年重置SOH
         }
 
+        // 物理计算
         const physics = calculatePhysics(
           params.Wh, currentSOH, params.dod, params.cycles, 
           params.runDays, params.chargeEff, params.dischargeEff, year
         );
 
+        // 收入计算
         const revenue = calculateRevenue({
           annualDischargeKWh: physics.annualDischargeKWh,
           spread: inputs.spread,
@@ -488,18 +500,22 @@ export function useStorageCalculation() {
           vatRate: params.vatRate,
         }, year);
 
+        // 成本计算
         const costs = calculateOperatingCosts(
           params.Wh, inputs.opex, physics.lossKWh, 
           inputs.price_valley, params.vatRate
         );
 
+        // 折旧计算
         const { annualDep, updatedAssets } = calculateDepreciation(assets);
         assets = updatedAssets;
 
+        // 贷款计算
         const loan = calculateLoanService(remainingDebt, annualPMT, params.loanRate, year, params.loanTerm);
         remainingDebt = loan.remainingDebt;
 
-        const surchargeRateInput = (inputs.surcharge_rate ?? 12) / 100;
+        // 税务计算
+        const surchargeRateInput = (inputs.surcharge_rate ?? 12) / 100; // 修复: 使用 ?? 允许0值
         const prefYears = Number(inputs.tax_preferential_years || 0);
         const prefRate = Number(inputs.tax_preferential_rate || 15) / 100;
         const currentTaxRate = (prefYears > 0 && year <= prefYears) ? prefRate : params.taxRate;
@@ -513,6 +529,7 @@ export function useStorageCalculation() {
         );
         remainingVAT = taxes.newVATCredit;
 
+        // 更新统计
         stats.total_charge_kwh += physics.annualChargeKWh;
         stats.total_discharge_kwh += physics.annualDischargeKWh;
         stats.total_loss_kwh += physics.lossKWh;
@@ -534,17 +551,22 @@ export function useStorageCalculation() {
         const dscr = loan.debtService > 0 ? (taxes.netProfit + annualDep + loan.interest) / loan.debtService : 999;
         if (year <= params.loanTerm && dscr < minDSCR) minDSCR = dscr;
 
+        // 现金流计算
+        // 1. 股东现金流
         let cf = taxes.netProfit + annualDep - loan.principal;
         if (year === inputs.aug_year && inputs.aug_year > 0) {
           cf -= augCost; 
         }
         
+        // 2. 项目现金流 (Project CF) - 修正公式
+        // NOPAT = (EBIT - Surcharge) * (1 - t)
         const nopat = (taxes.ebit - taxes.surcharge) * (1 - currentTaxRate);
         let projectCFYear = nopat + annualDep;
         if (year === inputs.aug_year && inputs.aug_year > 0) {
            projectCFYear -= augNet;
         }
         
+        // 残值回收
         let residualValue = 0;
         if (year === params.years) {
           residualValue = assets.reduce((sum, asset) => sum + asset.value * asset.residualRate, 0);
@@ -556,6 +578,7 @@ export function useStorageCalculation() {
         equityCF.push(Precision.yuan(cf));
         projectCF.push(Precision.yuan(projectCFYear));
         
+        // LCOE 成本流 (不含税)
         let yearCostLCOE = costs.opexNet + costs.lossCostNet;
         if (year === inputs.aug_year && inputs.aug_year > 0) yearCostLCOE += augNet;
         if (year === params.years) yearCostLCOE -= residualValue;
@@ -639,6 +662,8 @@ export function useStorageCalculation() {
 
   const exportCSV = useCallback(() => {
     if (!result) return;
+    
+    // 使用 \\n 确保在 Python 字符串中正确转义为 \n
     const headers = [
       '年份', 'SOH', '充电量(万kWh)', '放电量(万kWh)', '损耗电量(万kWh)',
       '电费收入', '补偿收入', '或有收益', '总收入',
@@ -646,6 +671,7 @@ export function useStorageCalculation() {
       '增值税', '附加税', '所得税', '总税金',
       'EBIT', 'EBITDA', '净利润', '本金偿还', '股东现金流', '累计现金流', 'DSCR'
     ];
+    
     let txt = headers.join(',') + '\\n';
     result.rows.forEach(r => {
       txt += `${r.y},${r.soh},${r.charge_kwh},${r.discharge_kwh},${r.loss_kwh},` +
@@ -654,6 +680,7 @@ export function useStorageCalculation() {
              `${r.vat_pay},${r.surcharge},${r.income_tax},${r.total_tax},` +
              `${r.ebit},${r.ebitda},${r.net_profit},${r.principal},${r.cf},${r.cum_cf},${r.dscr}\\n`;
     });
+    
     const blob = new Blob([txt], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

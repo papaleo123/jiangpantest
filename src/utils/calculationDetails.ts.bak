@@ -21,26 +21,33 @@ export function createCalculationDetail(
 ): CalculationDetail | null {
   const year = typeof rowData.y === "string" ? parseInt(rowData.y) || 1 : (rowData.y || 1);
 
+  // [修复] 提升变量定义到函数顶层，供所有 case 使用
   const taxRate = (inputs?.tax_rate || 25) / 100;
   const taxPreferentialYears = inputs?.tax_preferential_years || 0;
   const taxPreferentialRate = (inputs?.tax_preferential_rate || 15) / 100;
   
-  // SOH 计算逻辑
+  // 复刻 SOH 计算逻辑（与 calculatePhysics 一致）
+  // 注意：第1年计算时 SOH=1.0（年初状态），年末才衰减
+  let currentSOH = 1.0;
+  // 计算年初SOH
   let yearStartSOH: number;
   if (year === 1) {
     yearStartSOH = 1.0;
   } else if (year === (inputs?.aug_year || 0) && inputs?.aug_year > 0) {
-    yearStartSOH = 0.95; 
+    yearStartSOH = 0.95; // 补容年份重置为95%
   } else if (inputs?.aug_year > 0 && year > inputs?.aug_year) {
-    yearStartSOH = 0.95 - (year - inputs?.aug_year - 1) * 0.025; 
+    yearStartSOH = 0.95 - (year - inputs?.aug_year - 1) * 0.025; // 补容后年份
   } else {
-    yearStartSOH = 1.0 - 0.04 - (year - 2) * 0.025; 
+    yearStartSOH = 1.0 - 0.04 - (year - 2) * 0.025; // 正常年份
   }
   yearStartSOH = Math.max(0.60, yearStartSOH);
   
+  // 计算年末SOH和平均SOH（用于全年发电量计算）
   const degradation = year === 1 ? 0.04 : 0.025;
   const yearEndSOH = Math.max(0.60, yearStartSOH - degradation);
-  const currentSOH = (yearStartSOH + yearEndSOH) / 2; // 平均SOH
+  const currentSOH = (yearStartSOH + yearEndSOH) / 2; // 全年平均SOH
+  
+  const displayYearStartSOH = yearStartSOH; // 用于展示
   
   const capacityWh = (inputs?.capacity || 100) * 1e6;
   const dod = (inputs?.dod || 90) / 100;
@@ -49,7 +56,8 @@ export function createCalculationDetail(
   const chargeEff = (inputs?.charge_eff || 94) / 100;
   const dischargeEff = (inputs?.discharge_eff || 94) / 100;
   
-  const powerKW = (inputs?.capacity || 100) * 1000 / (inputs?.duration_hours || 2); 
+  // 获取功率（kW）用于容量补贴计算
+  const powerKW = (inputs?.capacity || 100) * 1000 / (inputs?.duration_hours || 2); // MWh -> kW (功率 = 容量/时长)
   const durationHours = inputs?.duration_hours || 2;
   const subMode = inputs?.sub_mode || 'energy';
   const subPrice = inputs?.sub_price || 0.35;
@@ -57,6 +65,7 @@ export function createCalculationDetail(
   const spread = inputs?.spread || 0.70;
   const auxPrice = inputs?.aux_price || 0;
   
+  // 计算补贴退坡后的当前单价
   const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
   const currentSubPrice = subPrice * declineFactor;
   
@@ -65,13 +74,16 @@ export function createCalculationDetail(
   
   switch (type) {
     case 'discharge_kwh': {
-      const usableCapacityDC = capacityWh * currentSOH * dod; 
+      // 完全复刻 calculatePhysics 中的计算
+      const usableCapacityDC = capacityWh * currentSOH * dod; // 直流侧可用容量
+      
+      // 放电量（交流侧）= 直流可用容量 × 放电效率 × 日循环
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
       
       return {
         title: '放电量计算',
-        description: `第${year}年放电量`,
+        description: `第${year}年放电量，完全复刻代码逻辑`,
         formula: '((装机容量×1,000,000) × SOH × DOD) × 日循环 × 运行天数 ÷ 1000',
         steps: [
           { label: '装机容量', value: inputs?.capacity || 100, unit: 'MWh', formula: '输入参数' },
@@ -90,13 +102,14 @@ export function createCalculationDetail(
     }
     
     case 'charge_kwh': {
-      const usableCapacityDC = capacityWh * currentSOH * dod; 
-      const dailyChargeAC = usableCapacityDC / chargeEff * cycles; 
+      // 复刻计算：充电量独立计算，不再通过RTE反推
+      const usableCapacityDC = capacityWh * currentSOH * dod; // 直流侧可用容量
+      const dailyChargeAC = usableCapacityDC / chargeEff * cycles; // ÷ 充电效率
       const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
       
       return {
         title: '充电量计算',
-        description: `第${year}年充电量`,
+        description: `第${year}年充电量 = 直流可用容量 ÷ 充电效率 × 日循环 × 运行天数`,
         formula: '直流可用容量 ÷ 充电效率 × 日循环',
         steps: [
           { label: '直流可用容量', value: (usableCapacityDC / 1e6).toFixed(2), unit: 'MWh', formula: 'capacityWh × SOH × DOD' },
@@ -110,11 +123,17 @@ export function createCalculationDetail(
     }
     
     case 'loss_kwh': {
+      // 复刻计算
       const usableCapacityDC = capacityWh * currentSOH * dod;
+      
+      // 放电量计算
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
+      
+      // 充电量计算  
       const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
       const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
+      
       const lossKWh = annualChargeKWh - annualDischargeKWh;
       
       return {
@@ -131,14 +150,15 @@ export function createCalculationDetail(
     }
     
     case 'elec_rev': {
+      // 需要先计算放电量
       const usableCapacityDC = capacityWh * currentSOH * dod;
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
-      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000; 
-      const elecRevWan = (annualDischargeKWh * spread) / 10000; 
+      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000; // kWh
+      const elecRevWan = (annualDischargeKWh * spread) / 10000; // 转换为万元
       
       return {
         title: '电费套利收入',
-        description: `第${year}年电费套利收入`,
+        description: `第${year}年电费套利收入 = 放电量 × 峰谷价差`,
         formula: '放电量(万kWh) × 价差(元/kWh)',
         steps: [
           { label: '年放电量', value: (annualDischargeKWh / 10000).toFixed(2), unit: '万kWh', formula: '见放电量计算' },
@@ -150,6 +170,7 @@ export function createCalculationDetail(
     }
     
     case 'sub_rev': {
+      // 计算放电量（电量补贴用）或功率（容量补贴用）
       const usableCapacityDC = capacityWh * currentSOH * dod;
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
@@ -158,7 +179,8 @@ export function createCalculationDetail(
       let calcSteps = [];
       
       if (subMode === 'energy') {
-        subRev = (annualDischargeKWh * currentSubPrice) / 10000; 
+        // 内蒙模式：按电量
+        subRev = (annualDischargeKWh * currentSubPrice) / 10000; // 转换为万元
         calcSteps = [
           { label: '补贴模式', value: '按电量(内蒙模式)', unit: '', formula: '输入参数' },
           { label: '年放电量', value: (annualDischargeKWh / 10000).toFixed(2), unit: '万kWh', formula: '见放电量计算' },
@@ -166,10 +188,12 @@ export function createCalculationDetail(
           { label: '补偿收入', value: subRev.toFixed(2), unit: '万元', formula: '放电量(万kWh) × 单价 × 10000 ÷ 10000' },
         ];
       } else {
+        // 甘肃模式：按功率
         const kFactor = Math.min(1, durationHours / 6.0);
+        // 关键：确保功率单位是 kW（与 useStorageCalculation.ts 一致）
         const actualPowerKW = ((inputs?.capacity || 100) * 1000) / (inputs?.duration_hours || 2);
-        subRev = (actualPowerKW * currentSubPrice * kFactor) / 10000; 
-        const powerMW = actualPowerKW / 1000; 
+        subRev = (actualPowerKW * currentSubPrice * kFactor) / 10000; // 转换为万元
+        const powerMW = actualPowerKW / 1000; // 转换为MW用于显示
         
         calcSteps = [
           { label: '补贴模式', value: '按功率(甘肃模式)', unit: '', formula: '输入参数' },
@@ -184,7 +208,7 @@ export function createCalculationDetail(
       
       return {
         title: '补偿收入',
-        description: `第${year}年补偿收入`,
+        description: `第${year}年补偿收入（${subMode === 'energy' ? '内蒙-按电量' : '甘肃-按功率'}模式）`,
         formula: subMode === 'energy' ? '放电量 × 退坡后单价' : '功率 × K系数 × 退坡后单价',
         steps: calcSteps,
         result: { value: rowData.sub_rev, unit: '万元' }
@@ -192,11 +216,11 @@ export function createCalculationDetail(
     }
     
     case 'aux_rev': {
-      const auxRev = (powerKW * auxPrice) / 10000; 
+      const auxRev = (powerKW * auxPrice) / 10000; // 转换为万元
       
       return {
         title: '辅助服务收入',
-        description: `第${year}年辅助服务收入`,
+        description: `第${year}年辅助服务收入（调峰、调频等）`,
         formula: '功率 × 单位收益',
         steps: [
           { label: '功率', value: (powerKW / 1000).toFixed(1), unit: 'MW', formula: '容量÷时长' },
@@ -210,7 +234,7 @@ export function createCalculationDetail(
     case 'total_rev': {
       return {
         title: '总收入',
-        description: `第${year}年总收入`,
+        description: `第${year}年总收入 = 电费套利 + 补偿 + 辅助服务`,
         formula: '电费套利 + 补偿收入 + 辅助服务收入',
         steps: [
           { label: '电费套利', value: rowData.elec_rev, unit: '万元', formula: '' },
@@ -224,11 +248,11 @@ export function createCalculationDetail(
 
     case 'opex': {
       const opexRate = inputs?.opex || 0.02;
-      const opexGross = (capacityWh * opexRate) / 10000; 
+      const opexGross = (capacityWh * opexRate) / 10000; // 转换为万元
       
       return {
         title: '运维成本',
-        description: `第${year}年运维成本`,
+        description: `第${year}年运维成本 = 装机容量 × 运维费率`,
         formula: '装机容量(Wh) × 费率(元/Wh/年) ÷ 10000',
         steps: [
           { label: '装机容量', value: (capacityWh / 1e6).toFixed(0), unit: 'MWh', formula: '输入参数' },
@@ -241,6 +265,7 @@ export function createCalculationDetail(
     }
     
     case 'loss_cost': {
+      // 需要先计算损耗电量
       const usableCapacityDC = capacityWh * currentSOH * dod;
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
@@ -248,11 +273,11 @@ export function createCalculationDetail(
       const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
       const lossKWh = annualChargeKWh - annualDischargeKWh;
       const priceValley = inputs?.price_valley || 0.30;
-      const lossCostGross = (lossKWh * priceValley) / 10000; 
+      const lossCostGross = (lossKWh * priceValley) / 10000; // 转换为万元
       
       return {
         title: '效率损耗成本',
-        description: `第${year}年损耗成本`,
+        description: `第${year}年损耗成本 = 损耗电量 × 充电电价`,
         formula: '损耗电量(万kWh) × 电价(元/kWh)',
         steps: [
           { label: '年充电量', value: (annualChargeKWh / 10000).toFixed(2), unit: '万kWh', formula: '见充电量计算' },
@@ -272,10 +297,11 @@ export function createCalculationDetail(
       const residualRate = (inputs?.residual_rate || 5) / 100;
       const vatRate = (inputs?.vat_rate || 13) / 100;
       
+      // 基础投资（不含税）
       const baseCapex = inputs?.capex || 1.20;
-      const baseInvGross = baseCapex * capacityWh; 
-      const baseInvNet = baseInvGross / (1 + vatRate); 
-      const baseAnnualDep = (baseInvNet * (1 - residualRate)) / depYears / 10000; 
+      const baseInvGross = baseCapex * capacityWh; // 元
+      const baseInvNet = baseInvGross / (1 + vatRate); // 不含税
+      const baseAnnualDep = (baseInvNet * (1 - residualRate)) / depYears / 10000; // 万元
       
       let steps = [
         { label: '基础系统造价', value: baseCapex.toFixed(2), unit: '元/Wh', formula: '输入参数' },
@@ -290,11 +316,12 @@ export function createCalculationDetail(
       let totalDep = baseAnnualDep;
       let description = `第${year}年基础资产折旧（不含税投资按${depYears}年直线折旧）`;
       
+      // 如果是补容年，增加补容资产折旧
       if (year === augYear && augYear > 0) {
         const augPrice = inputs?.aug_price || 0.6;
-        const augInvGross = capacityWh * augPrice; 
-        const augInvNet = augInvGross / (1 + vatRate); 
-        const augAnnualDep = (augInvNet * (1 - residualRate)) / augDepYears / 10000; 
+        const augInvGross = capacityWh * augPrice; // 补容投资（含税）
+        const augInvNet = augInvGross / (1 + vatRate); // 不含税
+        const augAnnualDep = (augInvNet * (1 - residualRate)) / augDepYears / 10000; // 万元
         
         totalDep += augAnnualDep;
         description = `第${year}年折旧（含补容资产，基础+补容）`;
@@ -310,11 +337,13 @@ export function createCalculationDetail(
           { label: '合计年折旧', value: totalDep.toFixed(2), unit: '万元', formula: '基础折旧 + 补容折旧' },
         ]);
       } else if (augYear > 0 && year > augYear) {
+        // 补容后的年份，提示包含补容折旧
         const augPrice = inputs?.aug_price || 0.6;
         const augInvGross = capacityWh * augPrice;
         const augInvNet = augInvGross / (1 + vatRate);
         const augAnnualDep = (augInvNet * (1 - residualRate)) / augDepYears / 10000;
         
+        // 简化计算：假设补容资产也在折旧
         totalDep = baseAnnualDep + augAnnualDep;
         description = `第${year}年折旧（基础+补容资产，补容第${year - augYear}年）`;
         
@@ -334,13 +363,16 @@ export function createCalculationDetail(
     case 'interest': {
       const debtRatio = (inputs?.debt_ratio || 70) / 100;
       const loanRate = (inputs?.loan_rate || 3.5) / 100;
-      const totalInvGross = (inputs?.capex || 1.20) * capacityWh; 
-      const debt = totalInvGross * debtRatio / 10000; 
+      const totalInvGross = (inputs?.capex || 1.20) * capacityWh; // 总投资（元）
+      const debt = totalInvGross * debtRatio / 10000; // 贷款额（万元）
+      
+      // 简化计算：假设等额本息，首年利息≈贷款余额×利率
+      // 实际应该用剩余本金计算，这里做展示用简化
       const interest = debt * loanRate;
       
       return {
         title: '利息支出',
-        description: `第${year}年利息支出`,
+        description: `第${year}年利息支出（贷款比例${(debtRatio*100).toFixed(0)}%，利率${(loanRate*100).toFixed(1)}%）`,
         formula: '剩余本金 × 年利率',
         steps: [
           { label: '总投资(含税)', value: (totalInvGross / 10000).toFixed(0), unit: '万元', formula: 'capex × capacity' },
@@ -354,6 +386,7 @@ export function createCalculationDetail(
     }
 
     case 'vat_pay': {
+      // 复现 useStorageCalculation.ts 中的增值税计算逻辑
       const usableCapacityDC = capacityWh * currentSOH * dod;
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
@@ -372,7 +405,8 @@ export function createCalculationDetail(
       const powerKW = (inputs?.capacity || 100) * 1000 / durationHours;
       const subMode = inputs?.sub_mode || 'energy';
       
-      const elecRevGross = annualDischargeKWh * spread; 
+      // 计算收入（含税）
+      const elecRevGross = annualDischargeKWh * spread; // 电费套利
       let subRevGross = 0;
       if (year <= subYears) {
         const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
@@ -387,14 +421,17 @@ export function createCalculationDetail(
       const auxRevGross = powerKW * auxPrice;
       const totalRevGross = elecRevGross + subRevGross + auxRevGross;
       
+      // 销项税
       const outputVAT = totalRevGross - (totalRevGross / (1 + vatRate));
       
+      // 进项税（运维成本 + 损耗电费）
       const opexGross = capacityWh * (inputs?.opex || 0.02);
       const lossCostGross = lossKWh * priceValley;
       const opexNet = opexGross / (1 + vatRate);
       const lossCostNet = lossCostGross / (1 + vatRate);
       const inputVAT = (opexGross - opexNet) + (lossCostGross - lossCostNet);
       
+      // 增值税计算（简化，不考虑历史留抵）
       const theoreticalVat = outputVAT - inputVAT;
       const actualVat = parseFloat(rowData.vat_pay || '0') * 10000;
       const vatCreditUsed = Math.max(0, theoreticalVat - actualVat);
@@ -403,8 +440,8 @@ export function createCalculationDetail(
       
       return {
         title: '增值税',
-        description: `第${year}年应交增值税`,
-        formula: '销项税 - 进项税',
+        description: `第${year}年应交增值税 = 销项税 - 进项税`,
+        formula: '销项税(收入不含税部分 × 税率) - 进项税(成本中已缴增值税)',
         steps: [
           { label: '总收入(含税)', value: (totalRevGross / 10000).toFixed(2), unit: '万元', formula: '电费+补偿+辅助服务' },
           { label: '总收入(不含税)', value: ((totalRevGross / (1 + vatRate)) / 10000).toFixed(2), unit: '万元', formula: '含税 ÷ (1+税率)' },
@@ -421,49 +458,59 @@ export function createCalculationDetail(
     }
     
     case 'surcharge': {
-      const vatPay = parseFloat(rowData.vat_pay || '0') * 10000; 
-      const surchargeRate = (inputs?.surcharge_rate ?? 12) / 100; // Fixed: ?? 12
+      // 附加税 = 增值税 × 12%
+      const vatPay = parseFloat(rowData.vat_pay || '0') * 10000; // 转回元计算
+      const surchargeRate = (inputs?.surcharge_rate ?? 12) / 100; // 城建7% + 教育3% + 地方2%
       const surcharge = vatPay * surchargeRate;
       
       return {
         title: '附加税',
-        description: `第${year}年附加税`,
-        formula: `增值税 × ${surchargeRate * 100}%`,
+        description: `第${year}年附加税 = 增值税 × 附加税率(${surchargeRate * 100}%)`,
+        formula: '增值税 × 12%（城建7% + 教育3% + 地方2%）',
         steps: [
           { label: '应交增值税', value: (vatPay / 10000).toFixed(2), unit: '万元', formula: '见增值税计算' },
-          { label: '附加税率', value: (surchargeRate * 100).toFixed(0), unit: '%', formula: '城建+教育+地方' },
-          { label: '附加税额', value: (surcharge / 10000).toFixed(2), unit: '万元', formula: '增值税 × 税率' },
+          { label: '附加税率', value: '12', unit: '%', formula: '7%(城建) + 3%(教育) + 2%(地方)' },
+          { label: '附加税额', value: (surcharge / 10000).toFixed(2), unit: '万元', formula: '增值税 × 12%' },
         ],
         result: { value: rowData.surcharge, unit: '万元' }
       };
     }
     
+    
     case 'income_tax': {
+      // 1. 获取动态税率
       const isPreferential = taxPreferentialYears > 0 && year <= taxPreferentialYears;
       const currentTaxRate = isPreferential ? taxPreferentialRate : taxRate;
 
+      // 2. 从表格数据反推各项金额 (确保与表格完全一致)
       const vatRate = (inputs?.vat_rate || 13) / 100;
       
+      // 收入：直接取表格的总收入(含税) -> 转不含税
       const totalRevGross = parseFloat(rowData.total_rev || '0') * 10000;
       const totalRevNet = totalRevGross / (1 + vatRate);
 
+      // 成本：直接取表格的运维+损耗(含税) -> 转不含税
       const opexGross = parseFloat(rowData.opex || '0') * 10000;
       const opexNet = opexGross / (1 + vatRate);
       
       const lossGross = parseFloat(rowData.loss_cost || '0') * 10000;
       const lossNet = lossGross / (1 + vatRate);
 
+      // 扣除项：直接取表格数值 (这些本身就是不含税或直接扣除项)
       const dep = parseFloat(rowData.dep || '0') * 10000;
-      const interest = parseFloat(rowData.interest || '0') * 10000; 
+      const interest = parseFloat(rowData.interest || '0') * 10000; // 关键：使用表格里逐年递减的真实利息
       const surcharge = parseFloat(rowData.surcharge || '0') * 10000;
 
+      // 3. 计算应纳税所得额
+      // 公式：收入(不含税) - 运维(不含税) - 损耗(不含税) - 折旧 - 利息 - 附加税
       const taxableIncome = Math.max(0, totalRevNet - opexNet - lossNet - dep - interest - surcharge);
       
+      // 4. 计算所得税
       const incomeTax = taxableIncome * currentTaxRate;
       
       return {
         title: '所得税 (基于表格数据验证)',
-        description: `第${year}年所得税`,
+        description: `第${year}年所得税 = 应纳税所得额 × ${isPreferential ? '优惠' : '标准'}税率(${(currentTaxRate * 100).toFixed(1)}%)`,
         formula: '(总收入/1.13 - 总成本/1.13 - 折旧 - 利息 - 附加税) × 税率',
         steps: [
           { label: '总收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: `表格总收入 ${rowData.total_rev} ÷ (1+${vatRate*100}%)` },
@@ -489,7 +536,7 @@ export function createCalculationDetail(
       
       return {
         title: '总税金',
-        description: `第${year}年总税金`,
+        description: `第${year}年总税金 = 增值税 + 附加税 + 所得税`,
         formula: '三类税金之和',
         steps: [
           { label: '增值税', value: vat.toFixed(2), unit: '万元', formula: '销项 - 进项' },
@@ -502,6 +549,7 @@ export function createCalculationDetail(
     }
 
     case 'ebitda': {
+      // 计算 EBITDA = 息税前利润 + 折旧
       const usableCapacityDC = capacityWh * currentSOH * dod;
       const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
       const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
@@ -530,14 +578,14 @@ export function createCalculationDetail(
       const depYears = inputs?.dep_years || 15;
       const residualRate = (inputs?.residual_rate || 5) / 100;
       const totalInvNet = ((inputs?.capex || 1.20) * capacityWh) / (1 + vatRate);
-      const annualDep = (totalInvNet * (1 - residualRate)) / depYears / 10000; 
+      const annualDep = (totalInvNet * (1 - residualRate)) / depYears / 10000; // 万元
       
       const ebit = (totalRevNet - opexNet - lossCostNet) / 10000 - annualDep;
       const ebitda = ebit + annualDep;
       
       return {
         title: '息税折旧前利润 EBITDA',
-        description: `第${year}年EBITDA`,
+        description: `第${year}年EBITDA = 息税前利润 + 折旧`,
         formula: '营业收入 - 运维成本 - 损耗成本',
         steps: [
           { label: '营业收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: '总收入 ÷ (1+增值税率)' },
@@ -554,7 +602,7 @@ export function createCalculationDetail(
     case 'net_profit': {
       return {
         title: '净利润',
-        description: `第${year}年净利润`,
+        description: `第${year}年净利润 = 总收入 - 总成本 - 税金`,
         formula: '营业收入 - 营业成本 - 税金及附加 - 所得税',
         steps: [
           { label: '营业收入', value: rowData.total_rev, unit: '万元', formula: '见收入计算' },
@@ -569,7 +617,7 @@ export function createCalculationDetail(
     case 'cf': {
       return {
         title: '股东现金流',
-        description: `第${year}年股东现金流`,
+        description: `第${year}年股东现金流 = 净利润 + 折旧 - 本金偿还`,
         formula: '净利润 + 折旧 - 本金偿还 ± 补容投资',
         steps: [
           { label: '净利润', value: rowData.net_profit, unit: '万元', formula: '见净利润计算' },
@@ -585,7 +633,7 @@ export function createCalculationDetail(
       const prevCum = parseFloat(rowData.cum_cf || '0') - parseFloat(rowData.cf || '0');
       return {
         title: '累计现金流',
-        description: `第${year}年累计现金流`,
+        description: `第${year}年累计现金流 = 上年累计 + 当年现金流`,
         formula: '累计至上年末 + 当年股东现金流',
         steps: [
           { label: '上年末累计', value: prevCum.toFixed(2), unit: '万元', formula: year === 1 ? '初始投资' : '前一年累计' },
@@ -621,7 +669,7 @@ export function createCalculationDetail(
       
       return {
         title: '偿债覆盖率 DSCR',
-        description: `第${year}年偿债覆盖率`,
+        description: `第${year}年偿债覆盖率 = (净利润+折旧+利息) ÷ 当期还本付息`,
         formula: '可用于偿债现金流 ÷ 当期债务',
         steps: [
           { label: '净利润', value: (netProfit / 10000).toFixed(2), unit: '万元', formula: '' },
