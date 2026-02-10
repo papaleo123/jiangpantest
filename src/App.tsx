@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Header } from '@/components/Header';
 import { InputPanel } from '@/components/InputPanel';
 import { SensitivityChart } from "@/components/SensitivityChart";
+import { ChartsSection } from "@/components/ChartsSection";
 import { KpiCards } from '@/components/KpiCards';
 import { DataTable } from '@/components/DataTable';
 import { useStorageCalculation } from '@/hooks/useStorageCalculation';
@@ -64,7 +65,8 @@ function App() {
             
 
             {/* 数据表格 */}
-            <DataTable result={result} inputs={inputs} onExport={exportCSV} />
+            {result && <ChartsSection data={result} />}
+          <DataTable result={result} inputs={inputs} onExport={exportCSV} />
           </div>
         </div>
       </main>
