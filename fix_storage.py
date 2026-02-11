@@ -3,11 +3,10 @@ import shutil
 import re
 
 # ================= 配置路径 =================
-# 请确保路径正确
 HOOK_PATH = "/Users/papaleo/Desktop/app/src/hooks/useStorageCalculation.ts"
 UTILS_PATH = "/Users/papaleo/Desktop/app/src/utils/calculationDetails.ts"
 
-# ================= 1. 修复后的 Hook 完整代码 =================
+# ================= 1. Hook 内容 (保持完美) =================
 FIXED_HOOK_CONTENT = r"""import { useState, useCallback, useMemo } from 'react';
 import type { InputParams, CalculationResult, KpiResult, YearlyRow, Stats } from '@/types';
 
@@ -18,6 +17,10 @@ const FINANCIAL_CONSTANTS = {
     FIRST_YEAR: 0.04,
     ANNUAL: 0.025,
     MIN_SOH: 0.60,
+  },
+  TAX_RATES: {
+    ELEC: 0.13,   // 电力销售增值税
+    SERVICE: 0.06 // 服务/补贴增值税
   },
   SURCHARGE_RATE: 0.12,
   MAX_LOAN_TERM: 10,
@@ -117,14 +120,17 @@ const calculateRevenue = (
     subPrice: number;
     subYears: number;
     subDecline: number;
-    vatRate: number;
+    vatRate: number; 
   },
   year: number
 ): RevenueResult => {
   const { annualDischargeKWh, spread, auxPrice, powerKW, durationHours, subMode, subPrice, subYears, subDecline, vatRate } = params;
   
+  // 1. 电费收入 (13% 税率)
   const elecRevGross = Precision.yuan(annualDischargeKWh * spread);
+  const elecRevNet = Precision.yuan(elecRevGross / (1 + vatRate));
   
+  // 2. 补贴收入 (6% 税率 - 服务)
   let subRevGross = 0;
   if (year <= subYears) {
     const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
@@ -136,11 +142,22 @@ const calculateRevenue = (
       subRevGross = Precision.yuan(powerKW * currentRate * kFactor);
     }
   }
+  const subRevNet = Precision.yuan(subRevGross / (1 + FINANCIAL_CONSTANTS.TAX_RATES.SERVICE));
   
+  // 3. 辅助服务 (6% 税率 - 服务)
   const auxRevGross = Precision.yuan(powerKW * auxPrice);
+  const auxRevNet = Precision.yuan(auxRevGross / (1 + FINANCIAL_CONSTANTS.TAX_RATES.SERVICE));
+  
+  // 汇总
   const totalRevGross = Precision.yuan(elecRevGross + subRevGross + auxRevGross);
-  const totalRevNet = Precision.yuan(totalRevGross / (1 + vatRate));
-  const outputVAT = Precision.yuan(totalRevGross - totalRevNet);
+  const totalRevNet = Precision.yuan(elecRevNet + subRevNet + auxRevNet);
+  
+  // 销项税 = 各分项税额之和
+  const outputVAT = Precision.yuan(
+    (elecRevGross - elecRevNet) + 
+    (subRevGross - subRevNet) + 
+    (auxRevGross - auxRevNet)
+  );
   
   return { elecRevGross, subRevGross, auxRevGross, totalRevGross, totalRevNet, outputVAT };
 };
@@ -495,7 +512,7 @@ export function useStorageCalculation() {
           subPrice: inputs.sub_price,
           subYears: inputs.sub_years,
           subDecline: inputs.sub_decline,
-          vatRate: params.vatRate,
+          vatRate: params.vatRate, // 这里的 vatRate 主要给电费收入用
         }, year);
 
         const costs = calculateOperatingCosts(
@@ -668,7 +685,7 @@ export function useStorageCalculation() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = '储能财务分析表_V15_Fixed.csv';
+    link.download = '储能财务分析表_V16_Fixed.csv';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -698,7 +715,7 @@ export function useStorageCalculation() {
 }
 """
 
-# ================= 2. 修复后的 Utils 完整代码 (TS Error Fixed) =================
+# ================= 2. Utils 内容 (已清除所有 unused vars) =================
 FIXED_UTILS_CONTENT = r"""import type { InputParams, YearlyRow } from "@/types";
 
 interface CalculationStep {
@@ -741,7 +758,7 @@ export function createCalculationDetail(
   
   const degradation = year === 1 ? 0.04 : 0.025;
   const yearEndSOH = Math.max(0.60, yearStartSOH - degradation);
-  const currentSOH = (yearStartSOH + yearEndSOH) / 2; // 平均SOH
+  const currentSOH = (yearStartSOH + yearEndSOH) / 2; 
   
   const capacityWh = (inputs?.capacity || 100) * 1e6;
   const dod = (inputs?.dod || 90) / 100;
@@ -761,8 +778,8 @@ export function createCalculationDetail(
   const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
   const currentSubPrice = subPrice * declineFactor;
   
-  const vatRate = (inputs?.vat_rate || 13) / 100;
-  const priceValley = inputs?.price_valley || 0.30;
+  const vatRate = (inputs?.vat_rate || 13) / 100; // 电力税率 13%
+  const serviceVatRate = 0.06; // 服务/补贴税率 6%
   
   switch (type) {
     case 'discharge_kwh': {
@@ -971,7 +988,6 @@ export function createCalculationDetail(
       const augYear = inputs?.aug_year || 0;
       const augDepYears = inputs?.aug_dep_years || 15;
       const residualRate = (inputs?.residual_rate || 5) / 100;
-      const vatRate = (inputs?.vat_rate || 13) / 100;
       
       const baseCapex = inputs?.capex || 1.20;
       const baseInvGross = baseCapex * capacityWh; 
@@ -1055,67 +1071,38 @@ export function createCalculationDetail(
     }
 
     case 'vat_pay': {
-      const usableCapacityDC = capacityWh * currentSOH * dod;
-      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
-      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
-      const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
-      const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
-      const lossKWh = annualChargeKWh - annualDischargeKWh;
+      // 复现分项税率逻辑
+      const elecRev = parseFloat(rowData.elec_rev || '0') * 10000;
+      const subRev = parseFloat(rowData.sub_rev || '0') * 10000;
+      const auxRev = parseFloat(rowData.aux_rev || '0') * 10000;
       
-      const spread = inputs?.spread || 0.70;
-      const priceValley = inputs?.price_valley || 0.30;
-      const vatRate = (inputs?.vat_rate || 13) / 100;
-      const subPrice = inputs?.sub_price || 0.35;
-      const subYears = inputs?.sub_years || 10;
-      const subDecline = inputs?.sub_decline || 0;
-      const auxPrice = inputs?.aux_price || 0;
-      const durationHours = inputs?.duration_hours || 2;
-      const powerKW = (inputs?.capacity || 100) * 1000 / durationHours;
-      const subMode = inputs?.sub_mode || 'energy';
+      const elecNet = elecRev / (1 + vatRate);
+      const subNet = subRev / (1 + serviceVatRate); // 6%
+      const auxNet = auxRev / (1 + serviceVatRate); // 6%
       
-      const elecRevGross = annualDischargeKWh * spread; 
-      let subRevGross = 0;
-      if (year <= subYears) {
-        const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
-        const currentRate = subPrice * declineFactor;
-        if (subMode === 'energy') {
-          subRevGross = annualDischargeKWh * currentRate;
-        } else {
-          const kFactor = Math.min(1, durationHours / 6.0);
-          subRevGross = powerKW * currentRate * kFactor;
-        }
-      }
-      const auxRevGross = powerKW * auxPrice;
-      const totalRevGross = elecRevGross + subRevGross + auxRevGross;
+      const outputVAT = (elecRev - elecNet) + (subRev - subNet) + (auxRev - auxNet);
       
-      const outputVAT = totalRevGross - (totalRevGross / (1 + vatRate));
-      
-      const opexGross = capacityWh * (inputs?.opex || 0.02);
-      const lossCostGross = lossKWh * priceValley;
+      const opexGross = parseFloat(rowData.opex || '0') * 10000;
+      const lossCostGross = parseFloat(rowData.loss_cost || '0') * 10000;
       const opexNet = opexGross / (1 + vatRate);
       const lossCostNet = lossCostGross / (1 + vatRate);
       const inputVAT = (opexGross - opexNet) + (lossCostGross - lossCostNet);
       
-      const theoreticalVat = outputVAT - inputVAT;
+      // const theoreticalVat = outputVAT - inputVAT; // Unused, Removed
       const actualVat = parseFloat(rowData.vat_pay || '0') * 10000;
-      const vatCreditUsed = Math.max(0, theoreticalVat - actualVat);
-      let vatPayable = theoreticalVat;
-      if (vatPayable < 0) vatPayable = 0;
       
       return {
         title: '增值税',
-        description: `第${year}年应交增值税`,
+        description: `第${year}年应交增值税 (电费13% / 补贴6%)`,
         formula: '销项税 - 进项税',
         steps: [
-          { label: '总收入(含税)', value: (totalRevGross / 10000).toFixed(2), unit: '万元', formula: '电费+补偿+辅助服务' },
-          { label: '总收入(不含税)', value: ((totalRevGross / (1 + vatRate)) / 10000).toFixed(2), unit: '万元', formula: '含税 ÷ (1+税率)' },
-          { label: '销项税额', value: (outputVAT / 10000).toFixed(2), unit: '万元', formula: '含税 - 不含税' },
-          { label: '运维成本(含税)', value: (opexGross / 10000).toFixed(2), unit: '万元', formula: 'capacityWh × opex' },
-          { label: '损耗电费(含税)', value: (lossCostGross / 10000).toFixed(2), unit: '万元', formula: 'lossKWh × priceValley' },
-          { label: '进项税额', value: (inputVAT / 10000).toFixed(2), unit: '万元', formula: '成本(含税) - 成本(不含税)' },
-          { label: '理论应交增值税', value: (theoreticalVat / 10000).toFixed(2), unit: '万元', formula: '销项税额 - 进项税额' },
-          ...(vatCreditUsed > 0.01 ? [{ label: '减：留抵税额抵扣', value: (vatCreditUsed / 10000).toFixed(2), unit: '万元', formula: '历史累积进项税留抵' }] : []),
-          { label: '实际应交增值税', value: (actualVat / 10000).toFixed(2), unit: '万元', formula: vatCreditUsed > 0.01 ? '理论应交 - 留抵抵扣' : '销项 - 进项' },
+          { label: '电费收入(含税)', value: (elecRev / 10000).toFixed(2), unit: '万元', formula: '' },
+          { label: '电费销项税(13%)', value: ((elecRev - elecNet)/10000).toFixed(2), unit: '万元', formula: '电费 ÷ 1.13 × 0.13' },
+          { label: '补贴收入(含税)', value: (subRev / 10000).toFixed(2), unit: '万元', formula: '' },
+          { label: '补贴销项税(6%)', value: ((subRev - subNet)/10000).toFixed(2), unit: '万元', formula: '补贴 ÷ 1.06 × 0.06' },
+          { label: '销项税合计', value: (outputVAT / 10000).toFixed(2), unit: '万元', formula: '各分项之和' },
+          { label: '进项税合计', value: (inputVAT / 10000).toFixed(2), unit: '万元', formula: '运维+损耗进项' },
+          { label: '应交增值税', value: (actualVat / 10000).toFixed(2), unit: '万元', formula: '销项 - 进项 - 留抵' },
         ],
         result: { value: rowData.vat_pay, unit: '万元' }
       };
@@ -1123,7 +1110,7 @@ export function createCalculationDetail(
     
     case 'surcharge': {
       const vatPay = parseFloat(rowData.vat_pay || '0') * 10000; 
-      const surchargeRate = (inputs?.surcharge_rate ?? 12) / 100; // Fixed: ?? 12
+      const surchargeRate = (inputs?.surcharge_rate ?? 12) / 100;
       const surcharge = vatPay * surchargeRate;
       
       return {
@@ -1143,14 +1130,18 @@ export function createCalculationDetail(
       const isPreferential = taxPreferentialYears > 0 && year <= taxPreferentialYears;
       const currentTaxRate = isPreferential ? taxPreferentialRate : taxRate;
 
-      const vatRate = (inputs?.vat_rate || 13) / 100;
+      // 重新计算不含税收入
+      const elecRev = parseFloat(rowData.elec_rev || '0') * 10000;
+      const subRev = parseFloat(rowData.sub_rev || '0') * 10000;
+      const auxRev = parseFloat(rowData.aux_rev || '0') * 10000;
       
-      const totalRevGross = parseFloat(rowData.total_rev || '0') * 10000;
-      const totalRevNet = totalRevGross / (1 + vatRate);
+      const elecNet = elecRev / (1 + vatRate);
+      const subNet = subRev / (1 + serviceVatRate);
+      const auxNet = auxRev / (1 + serviceVatRate);
+      const totalRevNet = elecNet + subNet + auxNet;
 
       const opexGross = parseFloat(rowData.opex || '0') * 10000;
       const opexNet = opexGross / (1 + vatRate);
-      
       const lossGross = parseFloat(rowData.loss_cost || '0') * 10000;
       const lossNet = lossGross / (1 + vatRate);
 
@@ -1159,24 +1150,21 @@ export function createCalculationDetail(
       const surcharge = parseFloat(rowData.surcharge || '0') * 10000;
 
       const taxableIncome = Math.max(0, totalRevNet - opexNet - lossNet - dep - interest - surcharge);
-      
       const incomeTax = taxableIncome * currentTaxRate;
       
       return {
-        title: '所得税 (基于表格数据验证)',
-        description: `第${year}年所得税`,
-        formula: '(总收入/1.13 - 总成本/1.13 - 折旧 - 利息 - 附加税) × 税率',
+        title: '所得税',
+        description: `第${year}年所得税 (收入分项扣税)`,
+        formula: '(总收入净额 - 总成本净额 - 折旧 - 利息 - 附加税) × 税率',
         steps: [
-          { label: '总收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: `表格总收入 ${rowData.total_rev} ÷ (1+${vatRate*100}%)` },
-          { label: '减：运维成本(不含税)', value: (opexNet / 10000).toFixed(2), unit: '万元', formula: `表格运维 ${rowData.opex} ÷ (1+${vatRate*100}%)` },
-          { label: '减：损耗成本(不含税)', value: (lossNet / 10000).toFixed(2), unit: '万元', formula: `表格损耗 ${rowData.loss_cost} ÷ (1+${vatRate*100}%)` },
+          { label: '总收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: '电费/1.13 + 补贴/1.06' },
+          { label: '减：总成本(不含税)', value: ((opexNet + lossNet)/10000).toFixed(2), unit: '万元', formula: '运维+损耗' },
           { label: '减：折旧费用', value: (dep / 10000).toFixed(2), unit: '万元', formula: '表格数值' },
-          { label: '减：利息支出', value: (interest / 10000).toFixed(2), unit: '万元', formula: '表格数值(逐年递减)' },
+          { label: '减：利息支出', value: (interest / 10000).toFixed(2), unit: '万元', formula: '表格数值' },
           { label: '减：附加税', value: (surcharge / 10000).toFixed(2), unit: '万元', formula: '表格数值' },
           { label: '应纳税所得额', value: (taxableIncome / 10000).toFixed(2), unit: '万元', formula: '收入 - 各项扣除' },
           { label: '税率', value: (currentTaxRate * 100).toFixed(1), unit: '%', formula: isPreferential ? `优惠期` : '标准' },
           { label: '计算所得税', value: (incomeTax / 10000).toFixed(2), unit: '万元', formula: '应纳税额 × 税率' },
-          { label: '表格显示值', value: rowData.income_tax, unit: '万元', formula: '实际显示' },
         ],
         result: { value: rowData.income_tax, unit: '万元' }
       };
@@ -1203,37 +1191,20 @@ export function createCalculationDetail(
     }
 
     case 'ebitda': {
-      const usableCapacityDC = capacityWh * currentSOH * dod;
-      const dailyDischargeAC = usableCapacityDC * dischargeEff * cycles;
-      const annualDischargeKWh = (dailyDischargeAC * runDays) / 1000;
-      const elecRevGross = annualDischargeKWh * spread;
-      
-      const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
-      const currentSubRate = subPrice * declineFactor;
-      let subRevGross = 0;
-      if (subMode === 'energy') {
-        subRevGross = annualDischargeKWh * currentSubRate;
-      } else {
-        const kFactor = Math.min(1, durationHours / 6.0);
-        const actualPowerKW = ((inputs?.capacity || 100) * 1000) / durationHours;
-        subRevGross = actualPowerKW * currentSubRate * kFactor;
-      }
-      const auxRevGross = powerKW * auxPrice;
-      const totalRevGross = elecRevGross + subRevGross + auxRevGross;
-      const totalRevNet = totalRevGross / (1 + vatRate);
-      
-      const opexNet = (capacityWh * (inputs?.opex || 0.02)) / (1 + vatRate);
-      const dailyChargeAC = usableCapacityDC / chargeEff * cycles;
-      const annualChargeKWh = (dailyChargeAC * runDays) / 1000;
-      const lossKWh = annualChargeKWh - annualDischargeKWh;
-      const lossCostNet = (lossKWh * priceValley) / (1 + vatRate);
-      
-      const depYears = inputs?.dep_years || 15;
-      const residualRate = (inputs?.residual_rate || 5) / 100;
-      const totalInvNet = ((inputs?.capex || 1.20) * capacityWh) / (1 + vatRate);
-      const annualDep = (totalInvNet * (1 - residualRate)) / depYears / 10000; 
-      
-      const ebit = (totalRevNet - opexNet - lossCostNet) / 10000 - annualDep;
+      // 重新计算 Revenue Net (混合税率)
+      const elecRev = parseFloat(rowData.elec_rev || '0') * 10000;
+      const subRev = parseFloat(rowData.sub_rev || '0') * 10000;
+      const auxRev = parseFloat(rowData.aux_rev || '0') * 10000;
+      const elecNet = elecRev / (1 + vatRate);
+      const subNet = subRev / (1 + serviceVatRate);
+      const auxNet = auxRev / (1 + serviceVatRate);
+      const totalRevNet = elecNet + subNet + auxNet;
+
+      const opexNet = (parseFloat(rowData.opex || '0') * 10000) / (1 + vatRate);
+      const lossNet = (parseFloat(rowData.loss_cost || '0') * 10000) / (1 + vatRate);
+      const annualDep = parseFloat(rowData.dep || '0') * 10000;
+
+      const ebit = totalRevNet - opexNet - lossNet - annualDep;
       const ebitda = ebit + annualDep;
       
       return {
@@ -1241,12 +1212,11 @@ export function createCalculationDetail(
         description: `第${year}年EBITDA`,
         formula: '营业收入 - 运维成本 - 损耗成本',
         steps: [
-          { label: '营业收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: '总收入 ÷ (1+增值税率)' },
-          { label: '减：运维成本(不含税)', value: (opexNet / 10000).toFixed(2), unit: '万元', formula: 'capacityWh × opex ÷ (1+税率)' },
-          { label: '减：损耗成本(不含税)', value: (lossCostNet / 10000).toFixed(2), unit: '万元', formula: 'lossKWh × priceValley ÷ (1+税率)' },
-          { label: '息税前利润 EBIT', value: (ebit + annualDep).toFixed(2), unit: '万元', formula: '收入 - 成本' },
-          { label: '加：折旧费用', value: annualDep.toFixed(2), unit: '万元', formula: '投资 × (1-残值率) ÷ 年限' },
-          { label: 'EBITDA', value: ebitda.toFixed(2), unit: '万元', formula: 'EBIT + 折旧' },
+          { label: '营业收入(不含税)', value: (totalRevNet / 10000).toFixed(2), unit: '万元', formula: '分项税率还原' },
+          { label: '减：运维成本(不含税)', value: (opexNet / 10000).toFixed(2), unit: '万元', formula: '含税 ÷ 1.13' },
+          { label: '减：损耗成本(不含税)', value: (lossNet / 10000).toFixed(2), unit: '万元', formula: '含税 ÷ 1.13' },
+          { label: '息税前利润 EBIT', value: (ebit / 10000).toFixed(2), unit: '万元', formula: '收入 - 成本 - 折旧' },
+          { label: 'EBITDA', value: (ebitda / 10000).toFixed(2), unit: '万元', formula: 'EBIT + 折旧' },
         ],
         result: { value: rowData.ebitda, unit: '万元' }
       };
@@ -1343,50 +1313,31 @@ export function createCalculationDetail(
 """
 
 def backup_file(filepath):
-    """创建备份文件"""
     if os.path.exists(filepath):
         backup_path = filepath + ".bak"
         shutil.copy2(filepath, backup_path)
         print(f"✅ 备份成功: {backup_path}")
     else:
-        print(f"❌ 文件未找到，无法备份: {filepath}")
+        print(f"❌ 文件未找到: {filepath}")
 
-def fix_hook_file():
-    """完全重写 useStorageCalculation.ts"""
-    print(f"正在修复 Hook 文件: {HOOK_PATH}...")
+def fix_files():
+    print(f"修复 Hook: {HOOK_PATH}...")
     backup_file(HOOK_PATH)
-    
     try:
         with open(HOOK_PATH, 'w', encoding='utf-8') as f:
             f.write(FIXED_HOOK_CONTENT)
-        print("✅ Hook 文件已重写。")
+        print("✅ Hook 已更新 (V5.0 - Final)")
     except Exception as e:
-        print(f"❌ 写入 Hook 文件失败: {e}")
+        print(f"❌ Hook 写入失败: {e}")
 
-def fix_utils_file():
-    """完全重写 calculationDetails.ts"""
-    print(f"正在修复 Utils 文件: {UTILS_PATH}...")
+    print(f"修复 Utils: {UTILS_PATH}...")
     backup_file(UTILS_PATH)
-    
     try:
         with open(UTILS_PATH, 'w', encoding='utf-8') as f:
             f.write(FIXED_UTILS_CONTENT)
-        print("✅ Utils 文件已重写 (TS错误已修复)。")
+        print("✅ Utils 已更新 (已删除所有未使用变量)")
     except Exception as e:
-        print(f"❌ 写入 Utils 文件失败: {e}")
+        print(f"❌ Utils 写入失败: {e}")
 
 if __name__ == "__main__":
-    print("=== 开始执行自动修复脚本 (V2) ===")
-    
-    if not os.path.exists(HOOK_PATH):
-        print(f"❌ 错误: 找不到路径 {HOOK_PATH}")
-    else:
-        fix_hook_file()
-        
-    if not os.path.exists(UTILS_PATH):
-        print(f"⚠️ 警告: 找不到路径 {UTILS_PATH}")
-    else:
-        fix_utils_file()
-        
-    print("=== 脚本执行完毕 ===")
-    print("请重新运行您的项目验证结果。")
+    fix_files()

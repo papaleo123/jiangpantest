@@ -9,6 +9,10 @@ const FINANCIAL_CONSTANTS = {
     ANNUAL: 0.025,
     MIN_SOH: 0.60,
   },
+  TAX_RATES: {
+    ELEC: 0.13,   // 电力销售增值税
+    SERVICE: 0.06 // 服务/补贴增值税
+  },
   SURCHARGE_RATE: 0.12,
   MAX_LOAN_TERM: 10,
   RESIDUAL_RATE: 0.05,
@@ -107,14 +111,17 @@ const calculateRevenue = (
     subPrice: number;
     subYears: number;
     subDecline: number;
-    vatRate: number;
+    vatRate: number; 
   },
   year: number
 ): RevenueResult => {
   const { annualDischargeKWh, spread, auxPrice, powerKW, durationHours, subMode, subPrice, subYears, subDecline, vatRate } = params;
   
+  // 1. 电费收入 (13% 税率)
   const elecRevGross = Precision.yuan(annualDischargeKWh * spread);
+  const elecRevNet = Precision.yuan(elecRevGross / (1 + vatRate));
   
+  // 2. 补贴收入 (6% 税率 - 服务)
   let subRevGross = 0;
   if (year <= subYears) {
     const declineFactor = Math.pow(1 - subDecline / 100, year - 1);
@@ -126,11 +133,22 @@ const calculateRevenue = (
       subRevGross = Precision.yuan(powerKW * currentRate * kFactor);
     }
   }
+  const subRevNet = Precision.yuan(subRevGross / (1 + FINANCIAL_CONSTANTS.TAX_RATES.SERVICE));
   
+  // 3. 辅助服务 (6% 税率 - 服务)
   const auxRevGross = Precision.yuan(powerKW * auxPrice);
+  const auxRevNet = Precision.yuan(auxRevGross / (1 + FINANCIAL_CONSTANTS.TAX_RATES.SERVICE));
+  
+  // 汇总
   const totalRevGross = Precision.yuan(elecRevGross + subRevGross + auxRevGross);
-  const totalRevNet = Precision.yuan(totalRevGross / (1 + vatRate));
-  const outputVAT = Precision.yuan(totalRevGross - totalRevNet);
+  const totalRevNet = Precision.yuan(elecRevNet + subRevNet + auxRevNet);
+  
+  // 销项税 = 各分项税额之和
+  const outputVAT = Precision.yuan(
+    (elecRevGross - elecRevNet) + 
+    (subRevGross - subRevNet) + 
+    (auxRevGross - auxRevNet)
+  );
   
   return { elecRevGross, subRevGross, auxRevGross, totalRevGross, totalRevNet, outputVAT };
 };
@@ -485,7 +503,7 @@ export function useStorageCalculation() {
           subPrice: inputs.sub_price,
           subYears: inputs.sub_years,
           subDecline: inputs.sub_decline,
-          vatRate: params.vatRate,
+          vatRate: params.vatRate, // 这里的 vatRate 主要给电费收入用
         }, year);
 
         const costs = calculateOperatingCosts(
@@ -658,7 +676,7 @@ export function useStorageCalculation() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = '储能财务分析表_V15_Fixed.csv';
+    link.download = '储能财务分析表_V16_Fixed.csv';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
